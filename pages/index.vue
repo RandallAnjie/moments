@@ -23,41 +23,17 @@
         <Button @click="navigateTo('/login')">去登录</Button>
       </div>
 
-      <ClientOnly>
-        <DynamicScroller
-          :items="state.memoList"
-          :min-item-size="280"
-          key-field="id"
-          page-mode
-          :buffer="600"
-          class="virtual-feed"
-        >
-          <template #default="{ item, active }">
-            <DynamicScrollerItem
-              :item="item"
-              :active="active"
-              :size-dependencies="[item.content, item.imgs]"
-              :data-index="item.id"
-              class="border-b border-[#C0BEBF]/10 dark:border-[#2d2d2d]"
-            >
-              <FriendsMemo
-                :memo="item"
-                :show-more="true"
-                @memo-update="firstLoad"
-              />
-            </DynamicScrollerItem>
-          </template>
-        </DynamicScroller>
-        <template #fallback>
-          <div
-            v-for="(memo, idx) in state.memoList.slice(0, 5)"
-            :key="memo.id ?? idx"
-            class="border-b border-[#C0BEBF]/10 dark:border-[#2d2d2d]"
-          >
-            <FriendsMemo :memo="memo" :show-more="true" />
-          </div>
-        </template>
-      </ClientOnly>
+      <div
+        v-for="(memo, idx) in state.memoList"
+        :key="memo.id ?? idx"
+        class="memo-row border-b border-[#C0BEBF]/10 dark:border-[#2d2d2d]"
+      >
+        <FriendsMemo
+          :memo="memo"
+          :show-more="true"
+          @memo-update="firstLoad"
+        />
+      </div>
     </div>
 
     <div ref="loadMoreSentinel" id="get-more" class="cursor-pointer text-center text-sm opacity-70 my-4" @click="loadMore()" v-if="state.hasNext" >
@@ -71,12 +47,10 @@
 
 <script setup lang="ts">
 import { type Memo } from '~/lib/types';
-import { onMounted, onBeforeUnmount, ref, reactive, nextTick } from 'vue';
+import { onMounted, onBeforeUnmount, ref, reactive, nextTick, watch } from 'vue';
 import { toast } from "vue-sonner";
 import { Button } from "~/components/ui/button";
 import { useTimelineStore } from '~/stores/timeline';
-import { DynamicScroller, DynamicScrollerItem } from 'vue-virtual-scroller';
-import 'vue-virtual-scroller/dist/vue-virtual-scroller.css';
 
 definePageMeta({
   scrollToTop: false,
@@ -112,16 +86,22 @@ const handleScroll = () => {
   }, 150);
 };
 
-const setupObserver = () => {
-  if (intersectionObserver) intersectionObserver.disconnect();
-  if (!loadMoreSentinel.value) return;
+// 哨兵 v-if="state.hasNext" 控制挂载/卸载；用 watch 跟随 ref 变化，避免在
+// onMounted 时刻去 observe 一个尚未挂载的元素（firstLoad 是异步的，且 toast.promise
+// 不返回底层 promise，await firstLoad() 实际不等数据回来）。
+watch(loadMoreSentinel, (el) => {
+  if (intersectionObserver) {
+    intersectionObserver.disconnect();
+    intersectionObserver = null;
+  }
+  if (!el) return;
   intersectionObserver = new IntersectionObserver((entries) => {
     if (entries[0]?.isIntersecting && state.hasNext && !loadLock) {
       loadMore();
     }
   }, { rootMargin: '300px' });
-  intersectionObserver.observe(loadMoreSentinel.value);
-};
+  intersectionObserver.observe(el);
+});
 
 onMounted(async () => {
   if (timelineStore.hasCache && timelineStore.memoList.length > 0) {
@@ -132,12 +112,9 @@ onMounted(async () => {
     await nextTick();
     window.scrollTo(0, savedScrollTop);
   } else {
-    await firstLoad();
+    firstLoad();
     welcome();
   }
-
-  await nextTick();
-  setupObserver();
   window.addEventListener('scroll', handleScroll, { passive: true });
 });
 
@@ -497,5 +474,12 @@ const welcome = async () => {
 }
 .dark.input-div {
   border-bottom: #2d2d2d 1px solid;
+}
+/* 浏览器原生 "render-as-needed"：远离视口的 memo 跳过布局/绘制，把它们当 320px 高占位符。
+   Chrome 85+ / Safari 18+ / Firefox 125+ 支持；老浏览器降级为正常渲染。
+   不破坏 FancyBox 灯箱/showAll/点击/popup —— 因为节点本身一直在 DOM 里 */
+.memo-row {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 320px;
 }
 </style>

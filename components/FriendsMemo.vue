@@ -330,18 +330,32 @@ onMounted(async () => {
   })
 
   await nextTick()
-  measureAndClamp()
 
-  // 图片异步加载后高度会变,需要重新测量以决定是否显示"全文"
-  if (el.value) {
-    const innerImgs = el.value.querySelectorAll('img')
-    innerImgs.forEach((img: HTMLImageElement) => {
-      if (!img.complete) {
-        img.addEventListener('load', () => {
-          if (!showAll.value) measureAndClamp()
-        }, { once: true })
+  // 父级 .memo-row 用了 content-visibility: auto，视口外元素 scrollHeight 会是 0；
+  // 用 IntersectionObserver 等它真正可见时再测量，避免「全文」按钮在长文上不出现
+  const runMeasure = () => {
+    if (!el.value) return
+    if (el.value.scrollHeight > 0) {
+      measureAndClamp()
+      const innerImgs = el.value.querySelectorAll('img')
+      innerImgs.forEach((img: HTMLImageElement) => {
+        if (!img.complete) {
+          img.addEventListener('load', () => {
+            if (!showAll.value) measureAndClamp()
+          }, { once: true })
+        }
+      })
+      return true
+    }
+    return false
+  }
+  if (!runMeasure()) {
+    const measureObserver = new IntersectionObserver((entries) => {
+      if (entries[0]?.isIntersecting && runMeasure()) {
+        measureObserver.disconnect()
       }
-    })
+    }, { rootMargin: '200px' })
+    measureObserver.observe(el.value)
   }
 })
 
