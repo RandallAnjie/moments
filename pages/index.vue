@@ -17,19 +17,44 @@
           @click="searchMemo"
       >搜索</Button>
     </div>
-    <div class="content flex flex-col divide-y divide-[#C0BEBF]/10 gap-2">
+    <div class="content flex flex-col gap-0">
       <div v-if="state.memoList.length === 0 && !token" class="text-center">
         <div class="my-2 text-sm">什么也没有,赶紧去登录发表Moments吧!</div>
         <Button @click="navigateTo('/login')">去登录</Button>
       </div>
-      <FriendsMemo :memo="memo" v-for="(memo, index) in state.memoList" :key="index" :show-more="true"
-                   @memo-update="firstLoad" />
+
+      <div
+        ref="listContainerRef"
+        :style="{ height: totalSize + 'px', width: '100%', position: 'relative' }"
+      >
+        <div
+          v-for="virtualRow in virtualRows"
+          :key="getRowKey(virtualRow.index)"
+          :data-index="virtualRow.index"
+          :ref="(el) => measureRow(el as Element | null)"
+          class="border-b border-[#C0BEBF]/10 dark:border-[#2d2d2d]"
+          :style="{
+            position: 'absolute',
+            top: '0',
+            left: '0',
+            width: '100%',
+            transform: `translateY(${virtualRow.start - listOffsetTop}px)`,
+          }"
+        >
+          <FriendsMemo
+            v-if="state.memoList[virtualRow.index]"
+            :memo="state.memoList[virtualRow.index]"
+            :show-more="true"
+            @memo-update="firstLoad"
+          />
+        </div>
+      </div>
     </div>
 
-    <div id="get-more" ref="getMore" class="cursor-pointer text-center text-sm opacity-70 my-4" @click="loadMore()" v-if="state.hasNext" >
+    <div id="get-more" class="cursor-pointer text-center text-sm opacity-70 my-4" @click="loadMore()" v-if="state.hasNext" >
       加载中...
     </div>
-    <div class="cursor-pointer text-center text-sm opacity-70 my-4">
+    <div class="cursor-pointer text-center text-sm opacity-70 my-4" v-else>
       ———— 没有更多啦～ ————
     </div>
   </div>
@@ -37,18 +62,17 @@
 
 <script setup lang="ts">
 import { type Memo } from '~/lib/types';
-import { onMounted, onBeforeUnmount, watch, ref, reactive, nextTick } from 'vue';
+import { onMounted, onBeforeUnmount, watch, ref, reactive, nextTick, computed } from 'vue';
 import { toast } from "vue-sonner";
 import { Button } from "~/components/ui/button";
 import { useTimelineStore } from '~/stores/timeline';
+import { useWindowVirtualizer } from '@tanstack/vue-virtual';
 
 definePageMeta({
   scrollToTop: false,
 });
 
-const getMore = ref(null);
 const token = useCookie('token');
-let observer: IntersectionObserver | null = null;
 
 const search = ref('');
 
@@ -61,6 +85,31 @@ const searchMemo = async () => {
 const onlineUsers = ref<string>('');
 const timelineStore = useTimelineStore();
 
+const state = reactive({
+  memoList: [] as Memo[],
+  page: 1,
+  hasNext: false,
+});
+
+const listContainerRef = ref<HTMLElement | null>(null);
+const listOffsetTop = ref(0);
+
+const rowVirtualizer = useWindowVirtualizer(computed(() => ({
+  count: state.memoList.length,
+  estimateSize: () => 380,
+  overscan: 5,
+  scrollMargin: listOffsetTop.value,
+  getItemKey: (index: number) => state.memoList[index]?.id ?? index,
+})));
+
+const virtualRows = computed(() => rowVirtualizer.value.getVirtualItems());
+const totalSize = computed(() => rowVirtualizer.value.getTotalSize());
+
+const getRowKey = (index: number) => state.memoList[index]?.id ?? `idx-${index}`;
+const measureRow = (el: Element | null) => {
+  if (el) rowVirtualizer.value.measureElement(el);
+};
+
 let scrollSaveTimer: ReturnType<typeof setTimeout> | null = null;
 const handleScroll = () => {
   if (scrollSaveTimer) clearTimeout(scrollSaveTimer);
@@ -69,6 +118,21 @@ const handleScroll = () => {
   }, 150);
 };
 
+const updateListOffsetTop = () => {
+  if (listContainerRef.value) {
+    const rect = listContainerRef.value.getBoundingClientRect();
+    listOffsetTop.value = rect.top + window.scrollY;
+  }
+};
+
+watch(virtualRows, (items) => {
+  if (!items.length) return;
+  const lastItem = items[items.length - 1];
+  if (lastItem.index >= state.memoList.length - 3 && state.hasNext && !loadLock) {
+    loadMore();
+  }
+});
+
 onMounted(async () => {
   if (timelineStore.hasCache && timelineStore.memoList.length > 0) {
     state.memoList = [...timelineStore.memoList];
@@ -76,68 +140,27 @@ onMounted(async () => {
     state.hasNext = timelineStore.hasNext;
     const savedScrollTop = timelineStore.scrollTop;
     await nextTick();
+    updateListOffsetTop();
+    await nextTick();
     window.scrollTo(0, savedScrollTop);
   } else {
     await firstLoad();
     welcome();
-  }
-
-  const observer = new IntersectionObserver((entries) => {
-    if (entries[0].isIntersecting) {
-      loadMore();
-    }
-  }, {
-    rootMargin: '500px',
-  });
-
-  if (getMore.value) {
-    observer.observe(getMore.value);
+    await nextTick();
+    updateListOffsetTop();
   }
 
   window.addEventListener('scroll', handleScroll, { passive: true });
-
-  onUnmounted(() => {
-    if (getMore.value) {
-      observer.unobserve(getMore.value);
-    }
-  });
-
-  watch(getMore, () => {
-    setupObserver();
-  }, { immediate: true });
-
+  window.addEventListener('resize', updateListOffsetTop, { passive: true });
 });
 
 onBeforeUnmount(() => {
   if (typeof window !== 'undefined') {
     timelineStore.setScrollTop(window.scrollY);
     window.removeEventListener('scroll', handleScroll);
+    window.removeEventListener('resize', updateListOffsetTop);
     if (scrollSaveTimer) clearTimeout(scrollSaveTimer);
   }
-});
-
-const setupObserver = () => {
-  if (observer && getMore.value) {
-    observer.unobserve(getMore.value);
-  }
-
-  observer = new IntersectionObserver((entries) => {
-    if (entries[0].isIntersecting) {
-      loadMore();
-    }
-  }, {
-    rootMargin: '500px',
-  });
-
-  if (getMore.value) {
-    observer.observe(getMore.value);
-  }
-};
-
-const state = reactive({
-  memoList: [] as Memo[],
-  page: 1,
-  hasNext: false
 });
 
 const firstLoad = async () => {
