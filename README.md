@@ -24,6 +24,38 @@
 3. Wrangler CLI（项目已经把 `wrangler` 加到 devDependencies，下面所有命令都通过 `pnpm wrangler …` 调用）
 4. （可选）一个用于 R2 公开访问的自定义域名；不配置时可以使用 `*.r2.dev` 公开 URL
 
+## Cloudflare API Token
+
+下面"一次性资源准备" + "部署" + "GitHub Actions CI" 全都通过同一个 API Token 工作。建议先去 https://dash.cloudflare.com/profile/api-tokens **Create Custom Token**，授予下面这一套覆盖**首次完整初始化 + 后续持续部署**所需的全部权限。
+
+| 作用域 | 权限 | 用途 |
+| --- | --- | --- |
+| Account → **Cloudflare Pages** | Edit | 创建 Pages 项目、写 secrets、`pages deploy` |
+| Account → **D1** | Edit | `d1 create`、`d1 migrations apply --remote`、`d1 execute` |
+| Account → **Workers R2 Storage** | Edit | `r2 bucket create`、`r2 bucket dev-url enable`、`r2 object` |
+| Account → **Workers KV Storage** | Edit | `kv namespace create`、`kv key put/get` |
+| Account → **Workers Scripts** | Edit | （某些 Pages 函数相关后端操作需要） |
+| Account → **Account Settings** | Read | `wrangler whoami` 列账号 |
+| User → **User Details** | Read | `wrangler whoami` 不报警告 |
+
+**Account Resources**：选 "Include → Specific account → 你要部署到的那个账号"。**TTL**：CI 推荐 "不过期"；手动一次性部署可以设短 TTL（比如 1 天）用完即弃。**Zone Resources**：默认 "All zones" 不需要改（除非要绑自定义域名才需要 Zone → DNS → Edit）。
+
+获得 token 后两种用法：
+
+```bash
+# A) 命令行手动：用 env var 让 wrangler 拿到，不写盘
+export CLOUDFLARE_API_TOKEN='cfut_...'
+export CLOUDFLARE_ACCOUNT_ID='<你的 Account ID（仪表盘右侧栏可见）>'
+pnpm wrangler whoami   # 验证
+
+# B) GitHub Actions：在 repo Settings → Secrets and variables → Actions 加两个
+#   CLOUDFLARE_API_TOKEN = cfut_...
+#   CLOUDFLARE_ACCOUNT_ID = <账号 ID>
+# 之后 push 到 master / cloudflare-migration 触发 .github/workflows/deploy.yml
+```
+
+> 不想用自定义 token 也可以走 `pnpm wrangler login`（OAuth 浏览器跳转），但 CI / 服务器环境不方便。
+
 ## 一次性资源准备
 
 下面命令只在第一次部署时执行；得到的 ID 写回 `wrangler.toml`。
@@ -93,18 +125,46 @@ pnpm wrangler pages dev ./dist
 
 ## 部署到 Cloudflare Pages
 
+### 方式 A：本地手动部署
+
 ```bash
+# 第一次：先创建 Pages 项目（绑定通过随后的 deploy 自动从 wrangler.toml 注入）
+pnpm wrangler pages project create moments --production-branch=master
+
+# 写机密
+echo "<your-jwt-secret>" | pnpm wrangler pages secret put JWT_SECRET --project-name=moments
+# 其他可选 secrets：JWT_EXPIRES_IN / SITE_URL / RECAPTCHA_SECRET_KEY / TENCENT_MAP_KEY
+
+# 构建 + 部署
 pnpm build
-pnpm wrangler pages deploy ./dist --project-name=<your-pages-project>
+pnpm wrangler pages deploy ./dist --project-name=moments --branch=master
 ```
 
-或在 Cloudflare 后台把仓库连到 Pages，设置：
+部署后 Pages 项目里就会带上 `wrangler.toml` 声明的 D1 / R2 / KV 绑定（名称：`DB` / `UPLOADS` / `KV`）。
+
+### 方式 B：GitHub Actions 自动部署（推荐）
+
+仓库自带 [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) — push 到 `master` 或 `cloudflare-migration` 分支（也可以手动 `workflow_dispatch`）即自动 build + 部署。
+
+只需要在 GitHub repo 加两个 secrets（前提是 token 按上面"API Token"小节配好了权限）：
+
+```
+Settings → Secrets and variables → Actions → New repository secret
+  - CLOUDFLARE_API_TOKEN = cfut_...（长 TTL）
+  - CLOUDFLARE_ACCOUNT_ID = <你的 Account ID>
+```
+
+> ⚠️ 这种方式 Cloudflare Pages 仪表盘里仍然显示 "No Git Provider"，因为部署是通过 API 直接上传 `dist/`，不是 Cloudflare 自己 clone 仓库。优点是构建环境完全可控（Node 22 + pnpm 10）。
+
+### 方式 C：把仓库直接连到 Cloudflare Pages
+
+在 Cloudflare 后台 → Pages → 项目 → Settings → Builds & deployments → Connect to Git，授权 GitHub 之后填：
 
 - 构建命令：`pnpm build`
 - 输出目录：`dist`
-- 环境变量：按上面的列表配置
+- Node version 环境变量：`NODE_VERSION=20`（避免 CF 默认的旧 Node）
 
-Pages 项目设置里需要绑定上面创建的 D1 / R2 / KV，绑定名称必须与 `wrangler.toml` 一致：`DB`、`UPLOADS`、`KV`。
+绑定 D1 / R2 / KV 在 "Settings → Bindings"，名称必须与 `wrangler.toml` 一致：`DB`、`UPLOADS`、`KV`。环境变量按上文表格配置，机密走 "Encrypted variable"。
 
 ## 默认账号
 
