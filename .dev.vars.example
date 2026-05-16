@@ -1,0 +1,28 @@
+# Local development secrets for `wrangler pages dev`.
+# Copy to .dev.vars (gitignored) and fill in real values.
+#
+# Production secrets go in via:
+#   pnpm wrangler pages secret put <NAME>
+
+# Used to sign session JWTs. MUST be a long, random string.
+JWT_SECRET=replace-with-a-long-random-string
+
+# JWT lifetime (e.g. 7d, 24h).
+JWT_EXPIRES_IN=7d
+
+# MailChannels relay — required only if Config.enableEmail = 1.
+# MailChannels itself is free from Workers/Pages, but you need a verified
+# sender domain (SPF + DKIM). See README.
+MAIL_FROM=noreply@example.com
+MAIL_FROM_NAME=Moments
+
+# Public base URL of the R2 bucket (custom domain or r2.dev URL).
+# Trailing slash optional; the upload code normalises it.
+R2_PUBLIC_BASE_URL=https://pub-xxxxxx.r2.dev
+
+# Optional integrations — leave blank to disable.
+RECAPTCHA_SECRET_KEY=
+TENCENT_MAP_KEY=
+
+# Site URL used in absolute links (emails, OG tags).
+SITE_URL=http://localhost:3000

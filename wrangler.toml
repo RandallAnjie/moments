@@ -1,0 +1,51 @@
+# Wrangler configuration for Cloudflare Pages deployment of moments.
+# Copy this file as-is, then fill in the *_id placeholders after creating the
+# resources via the wrangler CLI (see README for the exact commands).
+
+name = "moments"
+compatibility_date = "2025-05-15"
+compatibility_flags = ["nodejs_compat"]
+
+# Nuxt's `cloudflare-pages` nitro preset emits into `dist/` for Pages.
+pages_build_output_dir = "./dist"
+
+# ---------------------------------------------------------------------------
+# D1 (SQLite) — primary application database
+#   pnpm wrangler d1 create moments-db
+#   pnpm wrangler d1 migrations apply moments-db --remote
+# ---------------------------------------------------------------------------
+[[d1_databases]]
+binding         = "DB"
+database_name   = "moments-db"
+database_id     = "PLACEHOLDER_D1_DATABASE_ID"
+migrations_dir  = "migrations"
+
+# ---------------------------------------------------------------------------
+# R2 — object storage for uploaded images
+#   pnpm wrangler r2 bucket create moments-uploads
+# Optional: attach a public custom domain or use the r2.dev public URL, then
+# put it in the `R2_PUBLIC_BASE_URL` var below / in .dev.vars for local dev.
+# ---------------------------------------------------------------------------
+[[r2_buckets]]
+binding     = "UPLOADS"
+bucket_name = "moments-uploads"
+
+# ---------------------------------------------------------------------------
+# KV — short-lived state: rate limit counters, email verification codes,
+# password reset tokens. (Pick a DO instead if you need stronger consistency.)
+#   pnpm wrangler kv namespace create moments-kv
+# ---------------------------------------------------------------------------
+[[kv_namespaces]]
+binding = "KV"
+id      = "PLACEHOLDER_KV_NAMESPACE_ID"
+
+# ---------------------------------------------------------------------------
+# Non-secret runtime vars. Put secrets (JWT_SECRET, RECAPTCHA_SECRET_KEY,
+# TENCENT_MAP_KEY, etc.) in .dev.vars for local dev and via
+# `pnpm wrangler pages secret put <NAME>` for production.
+# ---------------------------------------------------------------------------
+[vars]
+SITE_NAME           = "Moments"
+MAIL_FROM           = "noreply@example.com"
+MAIL_FROM_NAME      = "Moments"
+R2_PUBLIC_BASE_URL  = "https://pub-PLACEHOLDER.r2.dev"

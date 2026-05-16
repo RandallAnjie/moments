@@ -23,6 +23,13 @@ logs
 .env.*
 !.env.example
 
+# Wrangler / Cloudflare local state (dist is already covered above by the
+# nuxt build-outputs block — cloudflare-pages preset emits there too)
+.wrangler
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+
 public/upload
 
 .data/*
