@@ -1,19 +1,20 @@
-// Workers-native email delivery via MailChannels.
+// Outbound email via SMTP, using `worker-mailer` so it runs on the Workers /
+// Pages runtime (which can't load nodemailer because nodemailer needs Node's
+// `net`/`tls` modules — workerd's unenv polyfills don't cover those deeply
+// enough). worker-mailer talks SMTP directly over Cloudflare's `connect()`
+// API.
 //
-// MailChannels (https://api.mailchannels.net/tx/v1/send) is the standard
-// outbound relay for Cloudflare Workers / Pages — it accepts unauthenticated
-// POST requests from Workers and routes them through SPF/DKIM-aligned
-// senders. Replaces the legacy nodemailer + SMTP path; no Node TCP/TLS
-// runtime needed.
+// SMTP credentials live in the `Config` table (id=1), set via the admin UI:
+//   - mailHost / mailPort / mailSecure (1 = direct TLS port 465; 0 = STARTTLS port 587)
+//   - mailUser / mailPass
+//   - mailFrom (sender address) / mailName (display name)
+// `Config.enableEmail` is the master gate.
 //
-// Sender resolution order (first non-empty wins):
-//   1. Config row (id=1)  →  mailUser (address) + mailFrom/mailName (display)
-//   2. env.MAIL_FROM  +  env.MAIL_FROM_NAME
-// `Config.enableEmail` is the master gate. If it's off, sendEmail returns
-// {success:false} without making a network call.
+// Cloudflare blocks outbound port 25 permanently, so use 465 (TLS) or 587
+// (STARTTLS) on your SMTP server.
 import type { H3Event } from 'h3'
 import { eq } from 'drizzle-orm'
-import { getCfEnv } from '~/lib/cf-env'
+import { WorkerMailer } from 'worker-mailer'
 import { useDb } from '~/lib/db/d1'
 import { config as configTable } from '~/lib/db/schema'
 
@@ -43,49 +44,65 @@ export async function sendEmail(
     return { success: false, error: 'Email service is not enabled' }
   }
 
-  const env = getCfEnv(event) as Record<string, any>
-  const fromAddress =
-    (siteConfig.mailUser && siteConfig.mailUser.trim()) ||
-    (typeof env.MAIL_FROM === 'string' ? env.MAIL_FROM : '')
-  const fromName =
-    (siteConfig.mailFrom && siteConfig.mailFrom.trim()) ||
-    (siteConfig.mailName && siteConfig.mailName.trim()) ||
-    (typeof env.MAIL_FROM_NAME === 'string' ? env.MAIL_FROM_NAME : 'Moments')
+  const host = (siteConfig.mailHost ?? '').trim()
+  const port = siteConfig.mailPort ?? 0
+  const username = (siteConfig.mailUser ?? '').trim()
+  const password = (siteConfig.mailPass ?? '').trim()
+  const fromAddress = (siteConfig.mailFrom ?? '').trim() || username
+  const fromName = (siteConfig.mailName ?? '').trim() || 'Moments'
 
-  if (!fromAddress) {
+  if (!host || !port || !username || !password || !fromAddress) {
     return {
       success: false,
       error:
-        'No sender address configured (set Config.mailUser or env MAIL_FROM)',
+        'SMTP not fully configured. Need mailHost, mailPort, mailUser, mailPass, mailFrom in Config.',
     }
   }
 
-  // MailChannels requires text/plain before text/html when both are present.
-  const body = {
-    personalizations: [{ to: [{ email: options.email }] }],
-    from: { email: fromAddress, name: fromName },
-    subject: options.subject,
-    content: [
-      { type: 'text/plain', value: options.message },
-      { type: 'text/html', value: options.message },
-    ],
-  }
+  // mailSecure = 1 means direct TLS from the start (port 465).
+  // mailSecure = 0 means plain socket + STARTTLS upgrade (port 587).
+  const useSecure = !!siteConfig.mailSecure
 
+  let mailer: WorkerMailer | null = null
   try {
-    const response = await fetch('https://api.mailchannels.net/tx/v1/send', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
+    mailer = await WorkerMailer.connect({
+      credentials: { username, password },
+      authType: 'plain',
+      host,
+      port,
+      secure: useSecure,
+      startTls: !useSecure,
     })
-    if (!response.ok) {
-      const errText = await response.text().catch(() => '')
-      return {
-        success: false,
-        error: `MailChannels ${response.status}: ${errText || response.statusText}`,
-      }
-    }
+
+    await mailer.send({
+      from: { name: fromName, email: fromAddress },
+      to: { email: options.email },
+      subject: options.subject,
+      html: options.message,
+      text: stripHtml(options.message),
+    })
+
     return { success: true }
   } catch (e: any) {
     return { success: false, error: e?.message ?? String(e) }
+  } finally {
+    try {
+      await mailer?.close()
+    } catch {
+      // ignore close errors
+    }
   }
+}
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .trim()
 }
