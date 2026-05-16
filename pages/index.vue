@@ -37,9 +37,14 @@
 
 <script setup lang="ts">
 import { type Memo } from '~/lib/types';
-import { onMounted, onBeforeUnmount, watch, ref, reactive } from 'vue';
+import { onMounted, onBeforeUnmount, watch, ref, reactive, nextTick } from 'vue';
 import { toast } from "vue-sonner";
 import { Button } from "~/components/ui/button";
+import { useTimelineStore } from '~/stores/timeline';
+
+definePageMeta({
+  scrollToTop: false,
+});
 
 const getMore = ref(null);
 const token = useCookie('token');
@@ -54,10 +59,28 @@ const searchMemo = async () => {
 };
 
 const onlineUsers = ref<string>('');
+const timelineStore = useTimelineStore();
+
+let scrollSaveTimer: ReturnType<typeof setTimeout> | null = null;
+const handleScroll = () => {
+  if (scrollSaveTimer) clearTimeout(scrollSaveTimer);
+  scrollSaveTimer = setTimeout(() => {
+    timelineStore.setScrollTop(window.scrollY);
+  }, 150);
+};
 
 onMounted(async () => {
-  await firstLoad();
-  await welcome();
+  if (timelineStore.hasCache && timelineStore.memoList.length > 0) {
+    state.memoList = [...timelineStore.memoList];
+    state.page = timelineStore.page;
+    state.hasNext = timelineStore.hasNext;
+    const savedScrollTop = timelineStore.scrollTop;
+    await nextTick();
+    window.scrollTo(0, savedScrollTop);
+  } else {
+    await firstLoad();
+    welcome();
+  }
 
   const observer = new IntersectionObserver((entries) => {
     if (entries[0].isIntersecting) {
@@ -71,28 +94,7 @@ onMounted(async () => {
     observer.observe(getMore.value);
   }
 
-  // 检查scrollMemo是否存在，如果存在则滚动到对应memo
-  const scrollMemo = localStorage.getItem('scrollMemo');
-  if (scrollMemo) {
-    console.log('scrollMemo:', scrollMemo);
-    localStorage.removeItem('scrollMemo');
-  }
-
-  // 监听滚动并且保存用户滚动到了哪个memo，仅当滑动超过一个memo的时候才写入sessionStorage
-  window.addEventListener('scroll', () => {
-    const memoList = document.querySelectorAll('.memo');
-    let memoId = '';
-    memoList.forEach((memo) => {
-      const rect = memo.getBoundingClientRect();
-      if (rect.top < window.innerHeight / 2 && rect.bottom > window.innerHeight / 2) {
-        memoId = memo.id;
-      }
-    });
-    console.log('memoId:', memoId);
-    if (memoId) {
-      localStorage.setItem('scrollMemo', memoId);
-    }
-  });
+  window.addEventListener('scroll', handleScroll, { passive: true });
 
   onUnmounted(() => {
     if (getMore.value) {
@@ -104,6 +106,14 @@ onMounted(async () => {
     setupObserver();
   }, { immediate: true });
 
+});
+
+onBeforeUnmount(() => {
+  if (typeof window !== 'undefined') {
+    timelineStore.setScrollTop(window.scrollY);
+    window.removeEventListener('scroll', handleScroll);
+    if (scrollSaveTimer) clearTimeout(scrollSaveTimer);
+  }
 });
 
 const setupObserver = () => {
@@ -142,6 +152,12 @@ const firstLoad = async () => {
       if (data.success) {
         state.memoList = data.data as Memo[];
         state.hasNext = data.hasNext || false;
+        timelineStore.setCache({
+          memoList: state.memoList,
+          page: state.page,
+          hasNext: state.hasNext,
+        });
+        timelineStore.setScrollTop(0);
         return '加载成功';
       } else {
         return '加载失败: ' + data.message;
@@ -180,6 +196,11 @@ const loadMore = async () => {
               state.memoList.push(...data.data);
             }
             state.hasNext = data.hasNext;
+            timelineStore.setCache({
+              memoList: state.memoList,
+              page: state.page,
+              hasNext: state.hasNext,
+            });
             return '加载成功';
           } else {
             return '加载失败: ' + data.message;
