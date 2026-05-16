@@ -33,3 +33,6 @@ logs
 public/upload
 
 .data/*
+
+# Node V8 compile cache
+node-compile-cache

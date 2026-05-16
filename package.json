@@ -66,13 +66,14 @@
     "wrangler": "^3.91.0"
   },
   "pnpm": {
-    "supportedArchitectures": {
-      "os": [
-        "win32"
-      ],
-      "cpu": [
-        "x64"
-      ]
-    }
-  }
+    "ignoredBuiltDependencies": [
+      "@parcel/watcher",
+      "better-sqlite3",
+      "esbuild",
+      "sharp",
+      "vue-demi",
+      "workerd"
+    ]
+  },
+  "packageManager": "pnpm@10.11.0"
 }
