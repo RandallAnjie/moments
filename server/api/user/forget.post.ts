@@ -1,76 +1,77 @@
-import prisma from "~/lib/db";
-import bcrypt from "bcrypt";
-import redis from '~/services/redisService';
+// Cloudflare-native password reset: D1 (drizzle) + PBKDF2 password hash +
+// KV-backed email verification codes. Verification codes are written by
+// sendMail.post.ts under key `resetPassword${email}` with a 5-minute TTL.
+import { eq } from 'drizzle-orm'
+import { hashPassword } from '~/lib/auth/password'
+import { useDb } from '~/lib/db/d1'
+import { users } from '~/lib/db/schema'
 
 type registerReq = {
-    user: string;
-    password: string;
-    emailVerificationCode: string;
-};
+  user: string
+  password: string
+  emailVerificationCode: string
+}
+
+function getKv(event: any): KVNamespace {
+  const kv = event?.context?.cloudflare?.env?.KV as KVNamespace | undefined
+  if (!kv) {
+    throw new Error(
+      'KV binding "KV" is not available on event.context.cloudflare.env. ' +
+        'Run via `wrangler pages dev` (or deploy to Pages) so the binding is injected.',
+    )
+  }
+  return kv
+}
 
 export default defineEventHandler(async (event) => {
-    const {user, password, emailVerificationCode} = (await readBody(event)) as registerReq;
+  const { user, password, emailVerificationCode } =
+    (await readBody(event)) as registerReq
 
-    if(!user || !password || !emailVerificationCode){
-        return {
-            success: false,
-            message: '参数错误',
-        };
-    }
+  if (!user || !password || !emailVerificationCode) {
+    return { success: false, message: '参数错误' }
+  }
 
-    if (password.length < 6) {
-        return {
-            success: false,
-            message: "密码长度不能小于6位",
-        };
-    }
+  if (password.length < 6) {
+    return { success: false, message: '密码长度不能小于6位' }
+  }
 
-    if (password.length > 20) {
-        return {
-            success: false,
-            message: "密码长度不能大于20位",
-        };
-    }
+  if (password.length > 20) {
+    return { success: false, message: '密码长度不能大于20位' }
+  }
 
-    const tmpuser = await prisma.user.findUnique({
-        where: {
-            id: parseInt(user)
-        },
-    });
-    let email = '';
-    if (!tmpuser || !tmpuser.eMail) {
-        return {
-            success: false,
-            message: "用户不存在或者邮箱未绑定",
-        };
-    } else {
-        email = tmpuser.eMail;
-    }
+  const userId = Number(user)
+  if (!Number.isFinite(userId) || userId <= 0) {
+    return { success: false, message: '用户不存在或者邮箱未绑定' }
+  }
 
-    // 从数据库中读取验证码
-    const retrievedCode = await redis.get('resetPassword'+email);
-    if ((retrievedCode === null) || (retrievedCode !== emailVerificationCode)) {
-        console.log('retrievedCode:', retrievedCode, 'emailVerificationCode:', emailVerificationCode)
-        return {
-            success: false,
-            message: '验证码错误或过期',
-        };
-    }
+  const db = useDb(event)
 
-    await prisma.user.update({
-        where: {
-            id: parseInt(user),
-        },
-        data: {
-            password: bcrypt.hashSync(password, 10),
-        },
-    });
+  const targetRows = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1)
+  const target = targetRows[0]
+  if (!target || !target.eMail) {
+    return { success: false, message: '用户不存在或者邮箱未绑定' }
+  }
+  const email = target.eMail
 
-    // 删除验证码
-    await redis.del(email);
+  const kv = getKv(event)
+  const codeKey = 'resetPassword' + email
+  const retrievedCode = await kv.get(codeKey)
+  if (retrievedCode === null || retrievedCode !== emailVerificationCode) {
+    return { success: false, message: '验证码错误或过期' }
+  }
 
-    return {
-        success: true,
-    };
+  const now = new Date().toISOString()
+  const passwordHash = await hashPassword(password)
+  await db
+    .update(users)
+    .set({ password: passwordHash, updatedAt: now })
+    .where(eq(users.id, userId))
 
-});
+  await kv.delete(codeKey)
+
+  return { success: true }
+})
