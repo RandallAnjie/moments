@@ -147,7 +147,7 @@
 
 <script setup lang="ts">
 import type { Memo } from '@/lib/types';
-import { useElementSize, onClickOutside, watchOnce, useStorage } from '@vueuse/core';
+import { onClickOutside, useStorage } from '@vueuse/core';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import 'dayjs/locale/zh-cn';
@@ -291,8 +291,19 @@ const toolbarRef = ref(null)
 const showUserCommentArray = ref<Array<boolean>>([])
 const el = ref<any>(null)
 let hh = ref(0)
-const { height } = useElementSize(el)
 const likeList = useStorage<Array<number>>('likeList', [])
+
+const measureAndClamp = () => {
+  if (!el.value) return
+  // 测量真实内容高度时不能带 line-clamp,否则 scrollHeight 会被截断
+  const hadClamp = el.value.classList.contains('line-clamp-4')
+  if (hadClamp) el.value.classList.remove('line-clamp-4')
+  const fullHeight = el.value.scrollHeight
+  hh.value = fullHeight
+  if (fullHeight > 96 && !showAll.value) {
+    el.value.classList.add('line-clamp-4')
+  }
+}
 
 onClickOutside(toolbarRef, () => {
   showToolbar.value = false
@@ -316,6 +327,30 @@ onMounted(async () => {
       timeFrontend.value = res.data.timeFrontend
     }
   })
+
+  await nextTick()
+  measureAndClamp()
+
+  // 图片异步加载后高度会变,需要重新测量以决定是否显示"全文"
+  if (el.value) {
+    const innerImgs = el.value.querySelectorAll('img')
+    innerImgs.forEach((img: HTMLImageElement) => {
+      if (!img.complete) {
+        img.addEventListener('load', () => {
+          if (!showAll.value) measureAndClamp()
+        }, { once: true })
+      }
+    })
+  }
+})
+
+// 翻译切换 / 编辑后内容会变,需要重测高度
+watch(() => props.memo.content, async () => {
+  if (!el.value) return
+  showAll.value = false
+  el.value.classList.remove('line-clamp-4')
+  await nextTick()
+  measureAndClamp()
 })
 
 const gridCols = computed(() => {
@@ -535,13 +570,6 @@ const replaceNewLinesExceptInCodeBlocks = (text: string) => {
   return returns;
 };
 
-
-watchOnce(height, () => {
-  hh.value = height.value
-  if (height.value > 96) {
-    el.value.classList.add('line-clamp-4')
-  }
-})
 
 const gotouser = () => {
   navigateTo(`/user/${props.memo.userId}`)
