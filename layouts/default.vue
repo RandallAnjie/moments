@@ -188,6 +188,17 @@ onMounted(async () => {
         type: 'image/png',
         href: userinfo.value?.favicon || '/favicon.png',
       },
+      {
+        rel: 'apple-touch-icon',
+        sizes: '180x180',
+        href: '/apple-touch-icon.png',
+      },
+    ],
+    meta: [
+      { name: 'apple-mobile-web-app-capable', content: 'yes' },
+      { name: 'apple-mobile-web-app-status-bar-style', content: 'default' },
+      { name: 'apple-mobile-web-app-title', content: userinfo.value?.title || 'Moments' },
+      { name: 'mobile-web-app-capable', content: 'yes' },
     ],
     style: [
       {
