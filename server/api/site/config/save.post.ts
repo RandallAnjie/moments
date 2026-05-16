@@ -1,6 +1,6 @@
-import prisma from "~/lib/db";
-import bcrypt from "bcrypt";
-import {context} from "esbuild";
+import { eq } from 'drizzle-orm'
+import { useDb, type DB } from '~/lib/db/d1'
+import { config, notifications, systemConfig } from '~/lib/db/schema'
 
 type SaveConfigsReq = {
     enableS3: boolean,
@@ -49,127 +49,116 @@ type SaveConfigsReq = {
     metingApi?: string,
     customWeather?: boolean,
     aboutHtml?: string,
-};
+}
 
 export default defineEventHandler(async (event) => {
-    const data = (await readBody(event)) as SaveConfigsReq;
+    const data = (await readBody(event)) as SaveConfigsReq
 
-    console.log(data);
-
-    if(event.context.userId !== 1){
+    if (event.context.userId !== 1) {
         throw createError({
             statusCode: 401,
-            statusMessage: "Unauthorized",
-        });
+            statusMessage: 'Unauthorized',
+        })
     }
 
-    await prisma.config.update({
-        where: {
-            id: 1,
-        },
-        data: {
-            enableS3: data.enableS3,
-            s3Domain: data.domain,
-            s3Bucket: data.bucket,
-            s3Region: data.region,
-            s3AccessKey: data.accessKey,
-            s3SecretKey: data.secretKey,
-            s3Endpoint: data.endpoint,
-            s3ThumbnailSuffix: data.thumbnailSuffix,
-            title: data.title,
-            favicon: data.favicon,
-            css: data.css,
-            js: data.js,
-            beianNo: data.beianNo,
-            siteUrl: data.siteUrl,
-            enableRecaptcha: data.enableRecaptcha,
-            recaptchaSiteKey: data.recaptchaSiteKey,
-            recaptchaSecretKey: data.recaptchaSecretKey,
-            enableTencentMap: data.enableTencentMap,
-            tencentMapKey: data.tencentMapKey,
-            enableAliyunDective: data.enableAliyunDective,
-            aliyunAccessKeyId: data.aliyunAccessKeyId,
-            aliyunAccessKeySecret: data.aliyunAccessKeySecret,
-            enableEmail: data.enableEmail,
-            mailHost: data.mailHost,
-            mailPort: data.mailPort,
-            mailSecure: data.mailSecure,
-            mailUser: data.mailUser,
-            mailPass: data.mailPass,
-            mailFrom: data.mailFrom,
-            mailName: data.mailName,
-        },
-    });
+    const db = useDb(event)
 
-    const notificationRecord = await prisma.notification.findFirst({
-        where: {
-            type: 2,
-        },
-    });
+    // Build a sparse update payload so undefined values are SKIPPED rather
+    // than persisted as NULL (drizzle does not drop undefined values from .set()).
+    const setPayload: Partial<typeof config.$inferInsert> = {}
+    const assign = <K extends keyof typeof config.$inferInsert>(key: K, val: typeof config.$inferInsert[K] | undefined) => {
+        if (val !== undefined) setPayload[key] = val
+    }
+    assign('enableS3', data.enableS3)
+    assign('s3Domain', data.domain)
+    assign('s3Bucket', data.bucket)
+    assign('s3Region', data.region)
+    assign('s3AccessKey', data.accessKey)
+    assign('s3SecretKey', data.secretKey)
+    assign('s3Endpoint', data.endpoint)
+    assign('s3ThumbnailSuffix', data.thumbnailSuffix)
+    assign('title', data.title)
+    assign('favicon', data.favicon)
+    assign('css', data.css)
+    assign('js', data.js)
+    assign('beianNo', data.beianNo)
+    assign('siteUrl', data.siteUrl)
+    assign('enableRecaptcha', data.enableRecaptcha)
+    assign('recaptchaSiteKey', data.recaptchaSiteKey)
+    assign('recaptchaSecretKey', data.recaptchaSecretKey)
+    assign('enableTencentMap', data.enableTencentMap)
+    assign('tencentMapKey', data.tencentMapKey)
+    assign('enableAliyunDective', data.enableAliyunDective)
+    assign('aliyunAccessKeyId', data.aliyunAccessKeyId)
+    assign('aliyunAccessKeySecret', data.aliyunAccessKeySecret)
+    assign('enableEmail', data.enableEmail)
+    assign('mailHost', data.mailHost)
+    assign('mailPort', data.mailPort)
+    assign('mailSecure', data.mailSecure)
+    assign('mailUser', data.mailUser)
+    assign('mailPass', data.mailPass)
+    assign('mailFrom', data.mailFrom)
+    assign('mailName', data.mailName)
 
-    if(notificationRecord){
-        await prisma.notification.update({
-            where: {
-                id: notificationRecord.id,
-            },
-            data: {
-                message: data.notification,
-            },
-        });
-    }else{
-        await prisma.notification.create({
-            data: {
+    if (Object.keys(setPayload).length > 0) {
+        await db.update(config).set(setPayload).where(eq(config.id, 1))
+    }
+
+    // Preserve prisma's undefined-skip semantic: only touch the type=2
+    // notification when the caller actually provided a message.
+    if (data.notification !== undefined) {
+        const [existingNotification] = await db
+            .select({ id: notifications.id })
+            .from(notifications)
+            .where(eq(notifications.type, 2))
+            .limit(1)
+
+        if (existingNotification) {
+            await db
+                .update(notifications)
+                .set({ message: data.notification })
+                .where(eq(notifications.id, existingNotification.id))
+        } else {
+            await db.insert(notifications).values({
                 type: 2,
                 message: data.notification,
-            },
-        });
+                time: new Date().toISOString(),
+            })
+        }
     }
 
-    await updateSystemConfig("mailVerificationCodeType", data.mailVerificationCodeType?.toString()||"1", 1);
-    await updateSystemConfig("enableRegister", data.enableRegister?'1':'0', 1);
-    await updateSystemConfig("timeFrontend", data?.timeFrontend||"", 1);
-    await updateSystemConfig("customLocation", data.customLocation?'1':'0', 1);
-    await updateSystemConfig("emailRegistrationContent", data.emailRegistrationContent||"", 2);
-    await updateSystemConfig("emailChangeContent", data.emailChangeContent||"", 2);
-    await updateSystemConfig("emailResetContent", data.emailResetContent||"", 2);
-    await updateSystemConfig("emailMentionNotification", data.emailMentionNotification||"", 2);
-    await updateSystemConfig("emailNewCommentNotification", data.emailNewCommentNotification||"", 2);
-    await updateSystemConfig("emailNewReplyCommentNotification", data.emailNewReplyCommentNotification||"", 2);
-    await updateSystemConfig("emailNewMentionCommentNotification", data.emailNewMentionCommentNotification||"", 2);
-    await updateSystemConfig("metingApi", data.metingApi||"", 1);
-    await updateSystemConfig("customWeather", data.customWeather?'1':'0', 1);
-    await updateSystemConfig("aboutHtml", data.aboutHtml||"", 2);
+    await updateSystemConfig(db, 'mailVerificationCodeType', data.mailVerificationCodeType?.toString() || '1', 1)
+    await updateSystemConfig(db, 'enableRegister', data.enableRegister ? '1' : '0', 1)
+    await updateSystemConfig(db, 'timeFrontend', data?.timeFrontend || '', 1)
+    await updateSystemConfig(db, 'customLocation', data.customLocation ? '1' : '0', 1)
+    await updateSystemConfig(db, 'emailRegistrationContent', data.emailRegistrationContent || '', 2)
+    await updateSystemConfig(db, 'emailChangeContent', data.emailChangeContent || '', 2)
+    await updateSystemConfig(db, 'emailResetContent', data.emailResetContent || '', 2)
+    await updateSystemConfig(db, 'emailMentionNotification', data.emailMentionNotification || '', 2)
+    await updateSystemConfig(db, 'emailNewCommentNotification', data.emailNewCommentNotification || '', 2)
+    await updateSystemConfig(db, 'emailNewReplyCommentNotification', data.emailNewReplyCommentNotification || '', 2)
+    await updateSystemConfig(db, 'emailNewMentionCommentNotification', data.emailNewMentionCommentNotification || '', 2)
+    await updateSystemConfig(db, 'metingApi', data.metingApi || '', 1)
+    await updateSystemConfig(db, 'customWeather', data.customWeather ? '1' : '0', 1)
+    await updateSystemConfig(db, 'aboutHtml', data.aboutHtml || '', 2)
 
     return {
         success: true,
-    };
+    }
+})
 
-});
-
-
-async function updateSystemConfig(key: string, value: string, type: number){
-    const record = await prisma.systemConfig.findFirst({
-        where: {
-            key: key,
-        },
-    });
-    if(record){
-        await prisma.systemConfig.update({
-            where: {
-                id: record.id,
-            },
-            data: {
-                type: type,
-                value: value,
-            },
-        });
-    }else{
-        await prisma.systemConfig.create({
-            data: {
-                type: type,
-                key: key,
-                value: value,
-            },
-        });
+async function updateSystemConfig(db: DB, key: string, value: string, type: number) {
+    const [record] = await db
+        .select({ id: systemConfig.id })
+        .from(systemConfig)
+        .where(eq(systemConfig.key, key))
+        .limit(1)
+    if (record) {
+        await db
+            .update(systemConfig)
+            .set({ type, value })
+            .where(eq(systemConfig.id, record.id))
+    } else {
+        await db.insert(systemConfig).values({ type, key, value })
     }
 }
