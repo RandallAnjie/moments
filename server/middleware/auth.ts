@@ -6,7 +6,6 @@ import { verifyToken, type JwtPayload } from '~/lib/auth/jwt'
 
 const needLoginUrl = [
   '/api/memo/save',
-  '/api/files/s3Presigned',
   '/api/files/upload',
   '/api/memo/remove',
   '/api/user/settings/save',

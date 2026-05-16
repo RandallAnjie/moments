@@ -41,7 +41,6 @@ import { onMounted, onBeforeUnmount, watch, ref, reactive } from 'vue';
 import jsonp from 'jsonp';
 import { toast } from "vue-sonner";
 import { Button } from "~/components/ui/button";
-import WebSocketService from '~/services/websocketService';
 
 const getMore = ref(null);
 const token = useCookie('token');
@@ -56,7 +55,6 @@ const searchMemo = async () => {
 };
 
 const onlineUsers = ref<string>('');
-// const websocketService = new WebSocketService('wss://direct.auth.randallanjie.com');
 
 onMounted(async () => {
   await firstLoad();
@@ -73,20 +71,6 @@ onMounted(async () => {
   if (getMore.value) {
     observer.observe(getMore.value);
   }
-
-  // websocketService.connect();
-  //
-  // const connection = websocketService.getConnection();
-  // if (connection) {
-  //   connection.onmessage = (event: MessageEvent) => {
-  //     const msg = event.data;
-  //     console.log('Raw message:', msg); // 打印接收到的原始信息
-  //     const msgJson = JSON.parse(msg);
-  //     if(msgJson.type === 'online_users'){
-  //       onlineUsers.value = `当前站点 ${msgJson.domain} 人在线为： ${msgJson.count}`;
-  //     }
-  //   };
-  // }
 
   // 检查scrollMemo是否存在，如果存在则滚动到对应memo
   const scrollMemo = localStorage.getItem('scrollMemo');
@@ -115,7 +99,6 @@ onMounted(async () => {
     if (getMore.value) {
       observer.unobserve(getMore.value);
     }
-    // websocketService.disconnect();
   });
 
   watch(getMore, () => {
