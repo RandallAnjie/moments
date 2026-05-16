@@ -1,11 +1,16 @@
 <template>
   <div class="header relative mb-12">
-    <img
-        :key="user.headImgKey"
-        class="header-img w-full max-h-[300px]"
-        :src="getImgUrl(user.coverUrl)"
-        alt=""
-    />
+    <div class="w-full aspect-[3/1] max-h-[300px] overflow-hidden bg-gray-200 dark:bg-gray-800">
+      <img
+          v-if="user.coverUrl"
+          :key="user.headImgKey"
+          class="header-img w-full h-full object-cover"
+          :src="getImgUrl(user.coverUrl)"
+          alt=""
+          loading="eager"
+          fetchpriority="high"
+      />
+    </div>
     <div class="absolute right-2 left-2 bottom-[-40px]" style="width: calc(100% - 16px)">
       <div class="userinfo flex flex-col">
         <div class="flex flex-row items-center gap-4 justify-end">
@@ -53,7 +58,7 @@
 <script setup lang="ts">
 import { headigUpdateEvent, settingsUpdateEvent } from '~/lib/event';
 import { getImgUrl } from '~/lib/utils';
-import { reactive, onMounted, ref } from 'vue';
+import { onMounted, ref, computed } from 'vue';
 const colorMode = useColorMode();
 const token = useCookie('token');
 const route = useRoute();
@@ -61,36 +66,81 @@ const route = useRoute();
 const userId = useCookie('userId');
 let findId = userId.value;
 
-const user = reactive({
-  headImgKey: 0,
-  coverUrl: '',
-  nickname: '',
-  avatarUrl: '',
-  slogan: ''
-});
+type HeaderUser = {
+  headImgKey: number;
+  coverUrl: string;
+  nickname: string;
+  avatarUrl: string;
+  slogan: string;
+};
+
+const headerUserCache = useState<Record<string, HeaderUser>>('header-user-cache', () => ({}));
+const showWeatherCache = useState<boolean | null>('header-show-weather', () => null);
+
+function getCacheKey(id: any) {
+  return id == 'undefined' || id == null ? '0' : String(id);
+}
+
+const user = ref<HeaderUser>(
+  headerUserCache.value[getCacheKey(findId)] ?? {
+    headImgKey: 0,
+    coverUrl: '',
+    nickname: '',
+    avatarUrl: '',
+    slogan: ''
+  }
+);
 
 async function fetchUserData(id: any) {
-  const response = await $fetch('/api/user/settings/get?user=' + (id == 'undefined' ? '0' : id));
+  const key = getCacheKey(id);
+  const response = await $fetch('/api/user/settings/get?user=' + key);
   if (response && response.success) {
-    user.coverUrl = response.data.coverUrl;
-    user.nickname = response.data.nickname;
-    user.avatarUrl = response.data.avatarUrl;
-    user.slogan = response.data.slogan;
-    user.headImgKey++; // Force re-render by changing key
+    const next: HeaderUser = {
+      headImgKey: (user.value.headImgKey ?? 0) + 1,
+      coverUrl: response.data.coverUrl,
+      nickname: response.data.nickname,
+      avatarUrl: response.data.avatarUrl,
+      slogan: response.data.slogan
+    };
+    user.value = next;
+    headerUserCache.value[key] = next;
   }
 }
-const shwoWeather = ref(false)
+const shwoWeather = ref(showWeatherCache.value ?? false);
+
+const preloadHref = computed(() => user.value.coverUrl ? getImgUrl(user.value.coverUrl) : '');
+useHead(() => ({
+  link: preloadHref.value
+    ? [{ rel: 'preload', as: 'image', href: preloadHref.value }]
+    : []
+}));
+
 onMounted(async () => {
   const url = window.location.pathname;
   if (url.startsWith('/user/')) {
     findId = url.split('/user/')[1];
   }
-  await fetchUserData(findId);
-  await $fetch('/api/user/settings/get').then((res) => {
-    if (res.success) {
-      shwoWeather.value = (res.data.customWeather == "1")
-    }
-  })
+  const cacheKey = getCacheKey(findId);
+  const cached = headerUserCache.value[cacheKey];
+  if (cached) {
+    user.value = cached;
+    // refresh in background so updates eventually propagate
+    fetchUserData(findId).catch(() => {});
+  } else {
+    await fetchUserData(findId);
+  }
+
+  if (showWeatherCache.value === null) {
+    await $fetch('/api/user/settings/get').then((res) => {
+      if (res.success) {
+        const v = (res.data.customWeather == "1");
+        shwoWeather.value = v;
+        showWeatherCache.value = v;
+      }
+    })
+  } else {
+    shwoWeather.value = showWeatherCache.value;
+  }
 
 });
 
