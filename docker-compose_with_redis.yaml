@@ -1,8 +1,0 @@
-services:
-  app:
-    image: ranjie/rmoments:latest_with_redis  # 记得检查镜像版本
-    restart: always
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./data:/app/data/
