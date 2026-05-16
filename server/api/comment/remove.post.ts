@@ -1,46 +1,40 @@
-import prisma from "~/lib/db";
+import { eq } from 'drizzle-orm'
+import { useDb } from '~/lib/db/d1'
+import { comments, memos } from '~/lib/db/schema'
 
 type RemoveCommentReq = {
-  commentId: number;
-};
+  commentId: number
+}
 
 export default defineEventHandler(async (event) => {
-  const { commentId } =
-    (await readBody(event)) as RemoveCommentReq;
+  const { commentId } = (await readBody(event)) as RemoveCommentReq
+  const db = useDb(event)
 
-  // 根据commentId查找所在memo，然后查找所属用户
-    const comment = await prisma.comment.findUnique({
-        where: {
-        id: commentId,
-        },
-        select: {
-        memoId: true,
-        },
-    });
-    if(comment){
-      const memo = await prisma.memo.findUnique({
-          where: {
-          id: comment.memoId,
-          },
-          select: {
-          userId: true,
-          },
-      });
-        if(memo && (memo?.userId !== event.context.userId)){
-            throw createError({
-            statusCode: 401,
-            statusMessage: "Unauthorized",
-            });
-        }
+  const commentRows = await db
+    .select({ memoId: comments.memoId })
+    .from(comments)
+    .where(eq(comments.id, commentId))
+    .limit(1)
+  const comment = commentRows[0] ?? null
+
+  if (comment) {
+    const memoRows = await db
+      .select({ userId: memos.userId })
+      .from(memos)
+      .where(eq(memos.id, comment.memoId))
+      .limit(1)
+    const memo = memoRows[0] ?? null
+    if (memo && memo.userId !== event.context.userId) {
+      throw createError({
+        statusCode: 401,
+        statusMessage: 'Unauthorized',
+      })
     }
+  }
 
+  await db.delete(comments).where(eq(comments.id, commentId))
 
-  await prisma.comment.delete({
-    where: {
-      id:commentId,
-    },
-  });
   return {
-    success: true
-  };
-});
+    success: true,
+  }
+})
