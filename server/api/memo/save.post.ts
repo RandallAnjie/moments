@@ -1,169 +1,210 @@
-import prisma from "~/lib/db";
-import { aliTextJudge } from '~/utils/aliTextJudge';
-import {sendEmail} from "~/utils/sendEmail";
+// Cloudflare-native memo upsert:
+//   - D1 (drizzle) replaces prisma for Memo/User/Config/SystemConfig
+//   - sendEmail() now takes the event so it can read Config from D1
+//
+// Prisma upsert semantics are preserved: if a Memo row with body.id exists
+// (and belongs to the authenticated user), update it; otherwise insert a
+// new row with the current user as owner.
+import { eq } from 'drizzle-orm'
+import { aliTextJudge } from '~/utils/aliTextJudge'
+import { sendEmail } from '~/utils/sendEmail'
+import { useDb } from '~/lib/db/d1'
+import { config as configTable, memos, systemConfig, users } from '~/lib/db/schema'
 
 type SaveMemoReq = {
-  id?: number;
-  content: string;
-  imgUrls?: string[];
-  atpeople?: number[];
-  avpeople?: number[];
-  location?: string;
-  externalUrl?: string;
-  externalTitle?: string;
-  externalFavicon?: string;
-  music163Url?: string;
-};
-
-const staticWord = {
-  'ad': '广告引流',
-  'political_content': '涉政内容',
-  'profanity': '辱骂内容',
-  'contraband': '违禁内容',
-  'sexual_content': '色情内容',
-  'violence': '暴恐内容',
-  'nonsense': '无意义内容',
-  'negative_content': '不良内容',
-  'religion': '宗教内容',
-  'cyberbullying': '网络暴力',
-  'ad_compliance': '广告法合规',
-  'C_customized': '违反本站规定',
+  id?: number
+  content: string
+  imgUrls?: string[]
+  atpeople?: number[]
+  avpeople?: number[]
+  location?: string
+  externalUrl?: string
+  externalTitle?: string
+  externalFavicon?: string
+  music163Url?: string
 }
 
-const siteConfig = await prisma.config.findUnique({
-  where: {
-    id: 1,
-  },
-});
-
-let siteUrl = siteConfig?.siteUrl;
+const staticWord: Record<string, string> = {
+  ad: '广告引流',
+  political_content: '涉政内容',
+  profanity: '辱骂内容',
+  contraband: '违禁内容',
+  sexual_content: '色情内容',
+  violence: '暴恐内容',
+  nonsense: '无意义内容',
+  negative_content: '不良内容',
+  religion: '宗教内容',
+  cyberbullying: '网络暴力',
+  ad_compliance: '广告法合规',
+  C_customized: '违反本站规定',
+}
 
 export default defineEventHandler(async (event) => {
-  const body = (await readBody(event)) as SaveMemoReq;
+  const body = (await readBody(event)) as SaveMemoReq
 
-    if (!body.content) {
-        return {
-        success: false,
-        message: "内容不能为空",
-        };
-    }
-    // if(body.content.length > 600){
-    //     return {
-    //     success: false,
-    //     message: "内容长度不能超过600个字符",
-    //     };
-    // }
-
-  const memo = await prisma.memo.findUnique({
-    where: {
-      id: body.id ?? -1,
-    },
-  });
-
-  if(memo && (memo?.userId !== event.context.userId)){
-    throw createError({
-      statusCode: 401,
-      statusMessage: "Unauthorized",
-    });
+  if (!body.content) {
+    return { success: false, message: '内容不能为空' }
   }
 
-  if(siteConfig?.enableAliyunDective && siteConfig?.aliyunAccessKeyId !== '' && siteConfig?.aliyunAccessKeySecret !== '' && event.context.userId !== 1){
-    let contentArray = body.content.match(/[\s\S]{1,600}/g);
-    for(let i = 0; i < contentArray.length; i++) {
-      const aliJudgeResponse1 = await aliTextJudge(contentArray[i], 'comment_detection', siteConfig?.aliyunAccessKeyId, siteConfig?.aliyunAccessKeySecret);
-      if (aliJudgeResponse1.Data && aliJudgeResponse1.Data.labels && aliJudgeResponse1.Data.labels !== '') {
-        let labelsList = aliJudgeResponse1.Data.labels.split(',');
+  const db = useDb(event)
+  const configRows = await db
+    .select()
+    .from(configTable)
+    .where(eq(configTable.id, 1))
+    .limit(1)
+  const siteConfig = configRows[0] ?? null
+  const siteUrl = siteConfig?.siteUrl ?? ''
+
+  const userId = event.context.userId as number | undefined
+  if (!userId) {
+    throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+  }
+
+  const lookupId = body.id ?? -1
+  const memoRows = await db
+    .select()
+    .from(memos)
+    .where(eq(memos.id, lookupId))
+    .limit(1)
+  const existingMemo = memoRows[0] ?? null
+
+  if (existingMemo && existingMemo.userId !== userId) {
+    throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+  }
+
+  if (
+    siteConfig?.enableAliyunDective &&
+    siteConfig?.aliyunAccessKeyId !== '' &&
+    siteConfig?.aliyunAccessKeySecret !== '' &&
+    userId !== 1
+  ) {
+    const contentArray = body.content.match(/[\s\S]{1,600}/g) ?? []
+    for (let i = 0; i < contentArray.length; i++) {
+      const aliJudgeResponse1: any = await aliTextJudge(
+        contentArray[i],
+        'comment_detection',
+        siteConfig?.aliyunAccessKeyId || '',
+        siteConfig?.aliyunAccessKeySecret || '',
+      )
+      if (
+        aliJudgeResponse1?.Data &&
+        aliJudgeResponse1.Data.labels &&
+        aliJudgeResponse1.Data.labels !== ''
+      ) {
+        const labelsList = String(aliJudgeResponse1.Data.labels).split(',')
         return {
           success: false,
-          message: "内容不符合规范：" + labelsList.map((label: string) => staticWord[label]).join(', '),
-        };
+          message:
+            '内容不符合规范：' +
+            labelsList.map((label) => staticWord[label] ?? label).join(', '),
+        }
       }
     }
   }
 
-  let atpeople = body.atpeople;
-    if (atpeople) {
-        atpeople = atpeople.filter((item) => item !== event.context.userId);
-    }
-    let avpeople = body.avpeople;
-  let avpeopleString :any = [];
+  let atpeople = body.atpeople
+  if (atpeople) {
+    atpeople = atpeople.filter((item) => item !== userId)
+  }
+  let avpeople = body.avpeople
+  let avpeopleString: string[] = []
   if (avpeople && avpeople.length > 0) {
-    if (!avpeople.includes(event.context.userId)) {
-      avpeople.push(event.context.userId);
+    if (!avpeople.includes(userId)) {
+      avpeople.push(userId)
     }
     if (atpeople) {
-        atpeople.forEach((item) => {
-            if (!avpeople.includes(item)) {
-            avpeople.push(item);
-            }
-        });
+      atpeople.forEach((item) => {
+        if (!avpeople!.includes(item)) {
+          avpeople!.push(item)
+        }
+      })
     }
-    avpeopleString = avpeople.map((item) => "#" + item + "$");
+    avpeopleString = avpeople.map((item) => '#' + item + '$')
   }
 
+  const now = new Date().toISOString()
   const updated = {
-    imgs: body.imgUrls?.join(","),
-    atpeople: atpeople?.join(","),
-    availableForProple: avpeopleString?.join(","),
-    location: body.location,
-    externalUrl: body.externalUrl,
-    externalTitle: body.externalTitle,
-    externalFavicon: body.externalFavicon,
+    imgs: body.imgUrls?.join(',') ?? null,
+    atpeople: atpeople?.join(',') ?? null,
+    availableForProple: avpeopleString.join(',') || null,
+    location: body.location ?? null,
+    externalUrl: body.externalUrl ?? null,
+    externalTitle: body.externalTitle ?? null,
+    externalFavicon: body.externalFavicon ?? '/favicon.png',
     content: body.content,
-    music163Url: body.music163Url,
-  };
-  const result = await prisma.memo.upsert({
-    where: {
-      id: body.id ?? -1,
-    },
-    create: {
-      userId: event.context.userId,
-      ...updated,
-    },
-    update: {
-      ...updated,
-    },
-  });
+    music163Url: body.music163Url ?? null,
+    updatedAt: now,
+  }
 
-    if (atpeople && atpeople.length > 0) {
-        const user = await prisma.user.findUnique({
-        where: {
-            id: event.context.userId,
-        },
-        });
-        for (const item of atpeople) {
-          const userat = await prisma.user.findUnique({
-            where: {
-              id: item,
-            },
-          });
-          if(userat && userat.eMail && userat.eMail !== '' && userat.eMail !== user?.eMail){
-            let tmpmsg = `有一条新提及您的动态！
-                用户名为:  ${user?.nickname} 的用户在动态中提及了您，点击查看: ${siteUrl}/detail/${result.id}`;
-            const emailNewMentionCommentNotification = await prisma.systemConfig.findFirst({
-                where: {
-                    key: 'emailNewMentionCommentNotification',
-                },
-            });
-            if(emailNewMentionCommentNotification && emailNewMentionCommentNotification.value && emailNewMentionCommentNotification.value !== ''){
-              tmpmsg = emailNewMentionCommentNotification.value;
-            }
-            tmpmsg = tmpmsg.replaceAll('{Sitename}', siteConfig?.title);
-            tmpmsg = tmpmsg.replaceAll('{SiteUrl}', siteUrl);
-            tmpmsg = tmpmsg.replaceAll('{MemoUrl}', `${siteUrl}/detail/${result.id}`);
-            tmpmsg = tmpmsg.replaceAll('{Nickname}', user?.nickname);
-            tmpmsg = tmpmsg.replaceAll('{Content}', result.content);
-            sendEmail({
-              email: userat.eMail,
-              subject: '新提及',
-              message: tmpmsg,
-            });
-          }
+  let resultId: number
+  if (existingMemo) {
+    const updatedRows = await db
+      .update(memos)
+      .set(updated)
+      .where(eq(memos.id, existingMemo.id))
+      .returning({ id: memos.id })
+    resultId = updatedRows[0]?.id ?? existingMemo.id
+  } else {
+    const insertedRows = await db
+      .insert(memos)
+      .values({
+        userId,
+        createdAt: now,
+        ...updated,
+      })
+      .returning({ id: memos.id })
+    resultId = insertedRows[0]!.id
+  }
+
+  if (atpeople && atpeople.length > 0) {
+    const senderRows = await db
+      .select({ nickname: users.nickname, eMail: users.eMail })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1)
+    const sender = senderRows[0] ?? null
+    const senderNickname = sender?.nickname ?? ''
+    for (const item of atpeople) {
+      const targetRows = await db
+        .select({ eMail: users.eMail })
+        .from(users)
+        .where(eq(users.id, item))
+        .limit(1)
+      const userat = targetRows[0] ?? null
+      if (
+        userat &&
+        userat.eMail &&
+        userat.eMail !== '' &&
+        userat.eMail !== sender?.eMail
+      ) {
+        let tmpmsg = `有一条新提及您的动态！\n                用户名为:  ${senderNickname} 的用户在动态中提及了您，点击查看: ${siteUrl}/detail/${resultId}`
+        const templateRows = await db
+          .select()
+          .from(systemConfig)
+          .where(eq(systemConfig.key, 'emailNewMentionCommentNotification'))
+          .limit(1)
+        const template = templateRows[0] ?? null
+        if (template && template.value && template.value !== '') {
+          tmpmsg = template.value
         }
+        tmpmsg = tmpmsg.replaceAll('{Sitename}', siteConfig?.title ?? '')
+        tmpmsg = tmpmsg.replaceAll('{SiteUrl}', siteUrl)
+        tmpmsg = tmpmsg.replaceAll('{MemoUrl}', `${siteUrl}/detail/${resultId}`)
+        tmpmsg = tmpmsg.replaceAll('{Nickname}', senderNickname)
+        tmpmsg = tmpmsg.replaceAll('{Content}', body.content)
+        if (siteConfig?.enableEmail) {
+          await sendEmail(event, {
+            email: userat.eMail,
+            subject: '新提及',
+            message: tmpmsg,
+          })
+        }
+      }
     }
+  }
 
   return {
     success: true,
-    id: result.id,
-  };
-});
+    id: resultId,
+  }
+})
