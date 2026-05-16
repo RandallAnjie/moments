@@ -1,155 +1,157 @@
-import prisma from "~/lib/db";
+import { eq } from 'drizzle-orm'
+import { useDb } from '~/lib/db/d1'
+import { users, config as configTable, systemConfig } from '~/lib/db/schema'
 
-type GetSettingReq = {
-  user?: string;
-};
+type UserPublic = {
+  nickname: string | null
+  avatarUrl: string | null
+  slogan: string | null
+  coverUrl: string | null
+  personalCss: string
+  eMail?: string | null
+}
 
 export default defineEventHandler(async (event) => {
-  const url = new URL(event.req.url, `http://${event.req.headers.host}`);
-  const params = new URLSearchParams(url.search);
+  const url = getRequestURL(event)
+  const paramUser = url.searchParams.get('user')
 
-  const paramUser = params.get('user');
-
-
-
-  // 获取用户 ID，如果没有提供则默认为 1
-  let userId = 1;
-
-    if (paramUser && /^\d+$/.test(paramUser)) {
-        userId = parseInt(paramUser);
-    }
-
+  let userId = 1
+  if (paramUser && /^\d+$/.test(paramUser)) {
+    userId = parseInt(paramUser, 10)
+  }
   if (!userId || userId < 1) {
-    userId = event.context.userId;
+    userId = event.context.userId ?? 1
   }
+  userId = userId ? userId : 1
 
-  userId = userId ? userId : 1;
+  const db = useDb(event)
 
-  let userData = null
-  if(event.context.userId !== userId) {
-    userData = await prisma.user.findUnique({
-      where: {
-        id: userId,
-      },
-      select: {
-        nickname: true,
-        avatarUrl: true,
-        slogan: true,
-        coverUrl: true,
-        css: true,
-      },
-    });
-    if(userData){
-      userData.personalCss = userData.css?userData.css:'';
-      delete userData.css;
+  const includeEmail = event.context.userId === userId
+  const userRows = await db
+    .select({
+      nickname: users.nickname,
+      avatarUrl: users.avatarUrl,
+      slogan: users.slogan,
+      coverUrl: users.coverUrl,
+      css: users.css,
+      eMail: users.eMail,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1)
+
+  let userData: UserPublic | null = null
+  if (userRows[0]) {
+    const row = userRows[0]
+    userData = {
+      nickname: row.nickname,
+      avatarUrl: row.avatarUrl,
+      slogan: row.slogan,
+      coverUrl: row.coverUrl,
+      personalCss: row.css ?? '',
     }
-  }else{
-    userData = await prisma.user.findUnique({
-      where: {
-        id: userId,
-      },
-      select: {
-        nickname: true,
-        avatarUrl: true,
-        slogan: true,
-        coverUrl: true,
-        eMail: true,
-        css: true,
-      },
-    });
-    if(userData){
-      userData.personalCss = userData.css?userData.css:'';
-      delete userData.css;
+    if (includeEmail) {
+      userData.eMail = row.eMail
     }
   }
-  let configData = await prisma.config.findUnique({
-    where: {
-      id: 1,
-    },
-    select: {
-      favicon: true,
-      title: true,
-      css:true,
-      js:true,
-      beianNo:true,
-    },
-  });
+
+  const configRows = await db
+    .select({
+      favicon: configTable.favicon,
+      title: configTable.title,
+      css: configTable.css,
+      js: configTable.js,
+      beianNo: configTable.beianNo,
+    })
+    .from(configTable)
+    .where(eq(configTable.id, 1))
+    .limit(1)
+  let configData = configRows[0] ?? null
+
   if (!userData || !configData) {
-    if(!userData && userId == 1){
-      // 新数据库，初始化数据
-      const initData = {
-        username: "admin",
-        nickname: "admin",
-        password: "$2b$10$F56fAwmRR9hBPXhPjVMLtusMgC7Gxp5VzTiWSXl28InVMgTpm2fYK",
-        avatarUrl: "/avatar.webp",
-        slogan: "这个人很懒，什么都没有留下",
-        coverUrl: "/cover.webp",
-        createdAt: new Date(),
-        updatedAt: new Date(),
+    if (!userData && userId === 1) {
+      const now = new Date().toISOString()
+      // Legacy bcrypt hash of "admin" — verifyPassword falls back to bcryptjs and
+      // transparently re-hashes to PBKDF2 on the first successful login.
+      const defaultPasswordHash =
+        '$2b$10$F56fAwmRR9hBPXhPjVMLtusMgC7Gxp5VzTiWSXl28InVMgTpm2fYK'
+      await db.insert(users).values({
+        username: 'admin',
+        nickname: 'admin',
+        password: defaultPasswordHash,
+        avatarUrl: '/avatar.webp',
+        slogan: '这个人很懒，什么都没有留下',
+        coverUrl: '/cover.webp',
+        createdAt: now,
+        updatedAt: now,
         enableS3: false,
-        title: "admin",
-        eMail: "example@randallanjie.com",
-      }
-      await prisma.user.create({
-        data: initData,
-      });
-      userData = await prisma.user.findUnique({
-        where: {
-          id: 1,
-        },
-        select: {
-          nickname: true,
-          avatarUrl: true,
-          slogan: true,
-          coverUrl: true,
-          eMail: true,
-        },
-      });
-    }
-    if(!configData){
-        // 新数据库，初始化数据
-        const initData = {
-          enableS3: false,
-          favicon: "/favicon.ico",
-          title: "Randall的小屋",
-          css: "",
-          js: "",
-          beianNo: "",
+        title: 'admin',
+        eMail: 'example@randallanjie.com',
+      })
+      const reReadUser = await db
+        .select({
+          nickname: users.nickname,
+          avatarUrl: users.avatarUrl,
+          slogan: users.slogan,
+          coverUrl: users.coverUrl,
+          eMail: users.eMail,
+          css: users.css,
+        })
+        .from(users)
+        .where(eq(users.id, 1))
+        .limit(1)
+      if (reReadUser[0]) {
+        userData = {
+          nickname: reReadUser[0].nickname,
+          avatarUrl: reReadUser[0].avatarUrl,
+          slogan: reReadUser[0].slogan,
+          coverUrl: reReadUser[0].coverUrl,
+          personalCss: reReadUser[0].css ?? '',
+          eMail: reReadUser[0].eMail,
         }
-        await prisma.config.create({
-          data: initData,
-        });
-        configData = await prisma.config.findUnique({
-          where: {
-            id: 1,
-          },
-          select: {
-            favicon: true,
-            title: true,
-            css:true,
-            js:true,
-            beianNo:true,
-          },
-        });
+      }
     }
-    if(userId !== 1){
-      throw new Error("User not found");
+    if (!configData) {
+      await db.insert(configTable).values({
+        enableS3: false,
+        favicon: '/favicon.ico',
+        title: 'Randall的小屋',
+        css: '',
+        js: '',
+        beianNo: '',
+      })
+      const reReadConfig = await db
+        .select({
+          favicon: configTable.favicon,
+          title: configTable.title,
+          css: configTable.css,
+          js: configTable.js,
+          beianNo: configTable.beianNo,
+        })
+        .from(configTable)
+        .where(eq(configTable.id, 1))
+        .limit(1)
+      configData = reReadConfig[0] ?? null
+    }
+    if (userId !== 1 && !userData) {
+      throw new Error('User not found')
     }
   }
-  let systemConfigData = await prisma.systemConfig.findMany({
-    where: {
-      type: 1,
-    },
-  });
+
+  const systemConfigRows = await db
+    .select()
+    .from(systemConfig)
+    .where(eq(systemConfig.type, 1))
+
   const data = {
-    ...userData,
-    ...configData,
-    "isadmin": event.context.userId === 1,
-    ...Object.fromEntries(systemConfigData.map((item) => [item.key, item.value])),
-  };
+    ...(userData ?? {}),
+    ...(configData ?? {}),
+    isadmin: event.context.userId === 1,
+    ...Object.fromEntries(systemConfigRows.map((item) => [item.key, item.value])),
+  }
 
   return {
     success: true,
-    data: data,
-  };
-});
+    data,
+  }
+})
