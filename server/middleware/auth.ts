@@ -1,113 +1,53 @@
-import { jwtKey } from "~/lib/constant";
-import jwt from "jsonwebtoken";
-import { JwtPayload } from "../api/user/login.post";
-import redis from "~/services/redisService";
+// Cookie-based auth middleware backed by the Workers JWT utility.
+// Token revocation (the old redis-backed allowlist) is intentionally dropped;
+// the JWT signature + exp claim are now the only source of truth. If we need
+// server-side revocation again, add a KV-backed denylist keyed by jti.
+import { verifyToken, type JwtPayload } from '~/lib/auth/jwt'
 
 const needLoginUrl = [
-  "/api/memo/save",
-  "/api/files/s3Presigned",
-  "/api/files/upload",
-  "/api/memo/remove",
-  "/api/user/settings/save",
-  "/api/user/settings/full",
-  "/api/sendEmail",
-  // "/api/user/getid",
-];
+  '/api/memo/save',
+  '/api/files/s3Presigned',
+  '/api/files/upload',
+  '/api/memo/remove',
+  '/api/user/settings/save',
+  '/api/user/settings/full',
+  '/api/sendEmail',
+]
 
 const needAdminUrl = [
-    // "/api/site/config/get",
-    "/api/site/config/save",
-];
+  '/api/site/config/save',
+]
 
 export default defineEventHandler(async (event) => {
-  let token = getCookie(event, "token");
-  if(token){
-    const tokenInRedis = await redis.get(token);
-    if(!tokenInRedis){
-      token = undefined;
-      setCookie(event, "token", "", {
-        httpOnly: true,
-        maxAge: 0,
-        path: "/",
-      });
-      setCookie(event, "userId", "", {
-        httpOnly: true,
-        maxAge: 0,
-        path: "/",
-      });
-    }
-  }
-  const url = getRequestURL(event);
+  const cookieToken = getCookie(event, 'token')
+  const payload = cookieToken
+    ? await verifyToken<JwtPayload>(event, cookieToken)
+    : null
 
-  if (token && url.pathname === "/login") {
-    await sendRedirect(event, "/", 302);
-    return;
+  if (cookieToken && !payload) {
+    setCookie(event, 'token', '', { httpOnly: true, maxAge: 0, path: '/' })
+    setCookie(event, 'userId', '', { httpOnly: true, maxAge: 0, path: '/' })
   }
 
-  if (token && url.pathname === "/register") {
-    await sendRedirect(event, "/", 302);
-    return;
+  const url = getRequestURL(event)
+
+  if (payload && (url.pathname === '/login' || url.pathname === '/register')) {
+    await sendRedirect(event, '/', 302)
+    return
   }
 
-    if (needAdminUrl.includes(url.pathname) && token) {
-      try {
-        const result = jwt.verify(token, jwtKey);
-        const payload = result as JwtPayload;
-        event.context.userId = payload.userId;
-        if(payload.userId !== 1){
-          throw createError({
-            statusCode: 401,
-            statusMessage: "Unauthorized",
-          });
-        }
-      } catch (error) {
-        throw createError({
-          statusCode: 401,
-          statusMessage: "Unauthorized",
-        });
-      }
-    }
-
-  if (needLoginUrl.includes(url.pathname) && !token) {
-    throw createError({
-      statusCode: 401,
-      statusMessage: "Unauthorized",
-    });
-  }
-
-  if((needAdminUrl.includes(url.pathname) || needLoginUrl.includes(url.pathname)) && token){
-    // 检测token是否在redis中
-    const tokenInRedis = await redis.get(token);
-    if(!tokenInRedis){
-      throw createError({
-        statusCode: 401,
-        statusMessage: "Unauthorized1",
-      });
-    }else{
-      // 检查是否跟id匹配
-      const result = jwt.verify(token, jwtKey);
-      const payload = result as JwtPayload;
-      if(payload.userId !== parseInt(JSON.parse(tokenInRedis).id)){
-        throw createError({
-          statusCode: 401,
-          statusMessage: "Unauthorized2",
-        });
-      }
+  if (needAdminUrl.includes(url.pathname)) {
+    if (!payload || payload.userId !== 1) {
+      throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
     }
   }
 
-  if (token) {
-    try {
-      const result = jwt.verify(token, jwtKey);
-      const payload = result as JwtPayload;
-      event.context.userId = payload.userId;
-      event.context.token = token;
-    } catch (error) {
-      throw createError({
-        statusCode: 401,
-        statusMessage: "Unauthorized",
-      });
-    }
+  if (needLoginUrl.includes(url.pathname) && !payload) {
+    throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
   }
 
-});
+  if (payload) {
+    event.context.userId = payload.userId
+    event.context.token = cookieToken
+  }
+})

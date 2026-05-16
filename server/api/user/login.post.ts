@@ -1,71 +1,73 @@
-import bcrypt from "bcrypt";
-import jwt from "jsonwebtoken";
-import { jwtKey } from "~/lib/constant";
-import prisma from "~/lib/db";
-import redis from "~/services/redisService";
+// Cloudflare-native login: D1 (drizzle) + Web Crypto PBKDF2 + Workers JWT.
+// Legacy bcrypt hashes still verify and are transparently upgraded to PBKDF2
+// on first successful login (see verifyPassword → needsRehash).
+import { eq, or } from 'drizzle-orm'
+import { signToken, getJwtExpiresInSeconds } from '~/lib/auth/jwt'
+import { hashPassword, verifyPassword } from '~/lib/auth/password'
+import { useDb } from '~/lib/db/d1'
+import { users } from '~/lib/db/schema'
 
 type loginReq = {
-  username: string;
-  password: string;
-};
+  username: string
+  password: string
+}
 
 export type JwtPayload = {
-  username: string;
-  exp: number;
-  userId: number;
-};
+  username: string
+  exp: number
+  userId: number
+}
 
 export default defineEventHandler(async (event) => {
-  const {username,password} = (await readBody(event)) as loginReq;
-  let token = "";
+  const { username, password } = (await readBody(event)) as loginReq
+  let token = ''
   if (!username || !password) {
     return {
       success: false,
-      message: "用户名（邮箱）或密码不能为空",
+      message: '用户名（邮箱）或密码不能为空',
       token,
-    };
+    }
   }
 
-  // 查找邮箱或者用户名
-  const user = await prisma.user.findFirst({
-    where: {
-      OR: [
-        {
-          username: username,
-        },
-        {
-          eMail: username,
-        },
-      ],
-    },
-  });
+  const db = useDb(event)
+  const rows = await db
+    .select()
+    .from(users)
+    .where(or(eq(users.username, username), eq(users.eMail, username)))
+    .limit(1)
+  const user = rows[0]
 
-  if (!user || !bcrypt.compareSync(password, user.password)) {
+  if (!user) {
     return {
-      message: "用户名（邮箱）或密码错误",
+      message: '用户名（邮箱）或密码错误',
       success: false,
       token,
-    };
+    }
   }
 
-  token = jwt.sign(
-      {
-        exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24,
-        username: user.username,
-        userId: user.id,
-      },
-      jwtKey
-  );
+  const result = await verifyPassword(password, user.password)
+  if (!result.valid) {
+    return {
+      message: '用户名（邮箱）或密码错误',
+      success: false,
+      token,
+    }
+  }
 
-  setCookie(event, "token", token, {
-    expires: new Date(Date.now() + 60 * 60 * 24 * 1000),
-  });
-  setCookie(event, "userId", ''+user.id, {
-    expires: new Date(Date.now() + 60 * 60 * 24 * 1000),
-  });
+  if (result.needsRehash) {
+    const newHash = await hashPassword(password)
+    await db.update(users).set({ password: newHash }).where(eq(users.id, user.id))
+  }
 
-  // 将用户信息存入redis
-  await redis.set(token, JSON.stringify(user));
+  token = await signToken(event, {
+    username: user.username,
+    userId: user.id,
+  })
+
+  const ttlSeconds = getJwtExpiresInSeconds(event)
+  const cookieExpires = new Date(Date.now() + ttlSeconds * 1000)
+  setCookie(event, 'token', token, { expires: cookieExpires })
+  setCookie(event, 'userId', '' + user.id, { expires: cookieExpires })
 
   return {
     success: true,
@@ -81,6 +83,6 @@ export default defineEventHandler(async (event) => {
       css: user.css,
       js: user.js,
     },
-    message:""
-  };
-});
+    message: '',
+  }
+})

@@ -1,9 +1,8 @@
-import prisma from "~/lib/db";
-import redis from "~/services/redisService";
-
-export default defineEventHandler(async (event) => {
-    // 获取当前用户的id
-    const token = event.context.token;
-    // 删除redis中的token
-    await redis.del(token);
-});
+// Logout clears the auth cookies. There is no server-side token store to
+// purge — JWTs validate purely from their signature + exp. A KV-backed
+// denylist can be added later if explicit revocation becomes a requirement.
+export default defineEventHandler((event) => {
+  setCookie(event, 'token', '', { httpOnly: true, maxAge: 0, path: '/' })
+  setCookie(event, 'userId', '', { httpOnly: true, maxAge: 0, path: '/' })
+  return { success: true }
+})
