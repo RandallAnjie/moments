@@ -1,43 +1,39 @@
-import prisma from "~/lib/db";
+import { eq } from 'drizzle-orm'
+import { useDb } from '~/lib/db/d1'
+import { memos } from '~/lib/db/schema'
 
-type LikeMemoReq = {
-  memoId?: number;
-  pinned: boolean;
-};
+type PinnedMemoReq = {
+  memoId?: number
+  pinned: boolean
+}
 
 export default defineEventHandler(async (event) => {
-  const { memoId,pinned } = (await readBody(event)) as LikeMemoReq;
-  // await prisma.memo.updateMany({
-  //   where: {
-  //     pinned: true,
-  //   },
-  //   data: {
-  //     pinned: false,
-  //   },
-  // });
-
-  const memo = await prisma.memo.findUnique({
-    where: {
-      id: memoId,
-    },
-  });
-
-  if(memo && (memo?.userId !== event.context.userId)){
-    throw createError({
-      statusCode: 401,
-      statusMessage: "Unauthorized",
-    });
+  const { memoId, pinned } = (await readBody(event)) as PinnedMemoReq
+  if (memoId === undefined || memoId === null) {
+    return { success: false, message: 'memoId 不能为空' }
   }
 
-  await prisma.memo.update({
-    where: {
-      id: memoId,
-    },
-    data: {
-      pinned,
-    },
-  });
+  const db = useDb(event)
+  const memoRows = await db
+    .select({ userId: memos.userId })
+    .from(memos)
+    .where(eq(memos.id, memoId))
+    .limit(1)
+  const memo = memoRows[0] ?? null
+
+  if (memo && memo.userId !== event.context.userId) {
+    throw createError({
+      statusCode: 401,
+      statusMessage: 'Unauthorized',
+    })
+  }
+
+  await db
+    .update(memos)
+    .set({ pinned, updatedAt: new Date().toISOString() })
+    .where(eq(memos.id, memoId))
+
   return {
-    success: true
-  };
-});
+    success: true,
+  }
+})
