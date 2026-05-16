@@ -1,58 +1,36 @@
-import prisma from "~/lib/db";
+import { and, like, ne } from 'drizzle-orm'
+import { useDb } from '~/lib/db/d1'
+import { users } from '~/lib/db/schema'
 
-type ListMemoReq = {
-  find: any;
-  withMe: number;
-};
+type ListUserReq = {
+  find?: string
+  withMe?: number
+}
 
 export default defineEventHandler(async (event) => {
-  let { find, withMe } = (await readBody(event)) as ListMemoReq;
+  const { find, withMe } = (await readBody(event)) as ListUserReq
+  const pattern = `%${find ?? ''}%`
+  const db = useDb(event)
 
-  // const size = 10;
-  let data :any = [];
-  if(withMe == 0){
-    data = await prisma.user.findMany({
-      where:{
-        nickname: {
-          contains: find,
-        },
-        id:{
-          not:event.context.userId
-        }
-      },
-      select:{
-        id: true,
-        nickname: true,
-        avatarUrl: true,
-      },
-    });
-  }else if(withMe == 1){
-    data = await prisma.user.findMany({
-      where:{
-        nickname: {
-          contains: find,
-        },
-      },
-      select:{
-        id: true,
-        nickname: true,
-        avatarUrl: true,
-      },
-    });
+  let rows: Array<{ id: number; nickname: string | null; avatarUrl: string | null }> = []
+  if (withMe === 0) {
+    const ctxUserId = event.context.userId
+    const cond = ctxUserId
+      ? and(like(users.nickname, pattern), ne(users.id, ctxUserId))
+      : like(users.nickname, pattern)
+    rows = await db
+      .select({ id: users.id, nickname: users.nickname, avatarUrl: users.avatarUrl })
+      .from(users)
+      .where(cond)
+  } else if (withMe === 1) {
+    rows = await db
+      .select({ id: users.id, nickname: users.nickname, avatarUrl: users.avatarUrl })
+      .from(users)
+      .where(like(users.nickname, pattern))
   }
 
-
-  // const total = await prisma.user.count({
-  //   where:{
-  //     nickname: {
-  //       contains: find,
-  //     }
-  //   }
-  // });
-  // const totalPage = Math.ceil(total / size);
   return {
-    data,
-    // hasNext: page < totalPage,
+    data: rows,
     success: true,
-  };
-});
+  }
+})

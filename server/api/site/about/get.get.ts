@@ -1,19 +1,20 @@
-import prisma from "~/lib/db";
+import { eq } from 'drizzle-orm'
+import { useDb } from '~/lib/db/d1'
+import { systemConfig } from '~/lib/db/schema'
 
 export default defineEventHandler(async (event) => {
-    const about = await prisma.systemConfig.findFirst({
-        where: {
-            key: 'aboutHtml',
-        },
-    });
-    if(!about || !about.value || about.value === ''){
-        return {
-            success: false,
-        };
-    }else{
-        return {
-            success: true,
-            data: about.value,
-        };
-    }
-});
+  const db = useDb(event)
+  const rows = await db
+    .select({ value: systemConfig.value })
+    .from(systemConfig)
+    .where(eq(systemConfig.key, 'aboutHtml'))
+    .limit(1)
+  const value = rows[0]?.value
+  if (!value || value === '') {
+    return { success: false }
+  }
+  return {
+    success: true,
+    data: value,
+  }
+})
