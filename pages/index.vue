@@ -23,17 +23,41 @@
         <Button @click="navigateTo('/login')">去登录</Button>
       </div>
 
-      <div
-        v-for="(memo, idx) in state.memoList"
-        :key="memo.id ?? idx"
-        class="border-b border-[#C0BEBF]/10 dark:border-[#2d2d2d]"
-      >
-        <FriendsMemo
-          :memo="memo"
-          :show-more="true"
-          @memo-update="firstLoad"
-        />
-      </div>
+      <ClientOnly>
+        <DynamicScroller
+          :items="state.memoList"
+          :min-item-size="280"
+          key-field="id"
+          page-mode
+          :buffer="600"
+          class="virtual-feed"
+        >
+          <template #default="{ item, active }">
+            <DynamicScrollerItem
+              :item="item"
+              :active="active"
+              :size-dependencies="[item.content, item.imgs]"
+              :data-index="item.id"
+              class="border-b border-[#C0BEBF]/10 dark:border-[#2d2d2d]"
+            >
+              <FriendsMemo
+                :memo="item"
+                :show-more="true"
+                @memo-update="firstLoad"
+              />
+            </DynamicScrollerItem>
+          </template>
+        </DynamicScroller>
+        <template #fallback>
+          <div
+            v-for="(memo, idx) in state.memoList.slice(0, 5)"
+            :key="memo.id ?? idx"
+            class="border-b border-[#C0BEBF]/10 dark:border-[#2d2d2d]"
+          >
+            <FriendsMemo :memo="memo" :show-more="true" />
+          </div>
+        </template>
+      </ClientOnly>
     </div>
 
     <div ref="loadMoreSentinel" id="get-more" class="cursor-pointer text-center text-sm opacity-70 my-4" @click="loadMore()" v-if="state.hasNext" >
@@ -51,6 +75,8 @@ import { onMounted, onBeforeUnmount, ref, reactive, nextTick } from 'vue';
 import { toast } from "vue-sonner";
 import { Button } from "~/components/ui/button";
 import { useTimelineStore } from '~/stores/timeline';
+import { DynamicScroller, DynamicScrollerItem } from 'vue-virtual-scroller';
+import 'vue-virtual-scroller/dist/vue-virtual-scroller.css';
 
 definePageMeta({
   scrollToTop: false,

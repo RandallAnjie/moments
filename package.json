@@ -45,6 +45,7 @@
     "vue-recaptcha": "^3.0.0-alpha.6",
     "vue-router": "^4.3.2",
     "vue-sonner": "^1.1.2",
+    "vue-virtual-scroller": "2.0.0-beta.8",
     "vue3-lazy": "^1.0.0-alpha.1",
     "vuedraggable": "^2.24.3",
     "worker-mailer": "^1.2.1"
