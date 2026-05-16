@@ -24,34 +24,19 @@
       </div>
 
       <div
-        ref="listContainerRef"
-        :style="{ height: totalSize + 'px', width: '100%', position: 'relative' }"
+        v-for="(memo, idx) in state.memoList"
+        :key="memo.id ?? idx"
+        class="border-b border-[#C0BEBF]/10 dark:border-[#2d2d2d]"
       >
-        <div
-          v-for="virtualRow in virtualRows"
-          :key="getRowKey(virtualRow.index)"
-          :data-index="virtualRow.index"
-          :ref="(el) => measureRow(el as Element | null)"
-          class="border-b border-[#C0BEBF]/10 dark:border-[#2d2d2d]"
-          :style="{
-            position: 'absolute',
-            top: '0',
-            left: '0',
-            width: '100%',
-            transform: `translateY(${virtualRow.start - listOffsetTop}px)`,
-          }"
-        >
-          <FriendsMemo
-            v-if="state.memoList[virtualRow.index]"
-            :memo="state.memoList[virtualRow.index]"
-            :show-more="true"
-            @memo-update="firstLoad"
-          />
-        </div>
+        <FriendsMemo
+          :memo="memo"
+          :show-more="true"
+          @memo-update="firstLoad"
+        />
       </div>
     </div>
 
-    <div id="get-more" class="cursor-pointer text-center text-sm opacity-70 my-4" @click="loadMore()" v-if="state.hasNext" >
+    <div ref="loadMoreSentinel" id="get-more" class="cursor-pointer text-center text-sm opacity-70 my-4" @click="loadMore()" v-if="state.hasNext" >
       加载中...
     </div>
     <div class="cursor-pointer text-center text-sm opacity-70 my-4" v-else>
@@ -62,11 +47,10 @@
 
 <script setup lang="ts">
 import { type Memo } from '~/lib/types';
-import { onMounted, onBeforeUnmount, watch, ref, reactive, nextTick, computed } from 'vue';
+import { onMounted, onBeforeUnmount, ref, reactive, nextTick } from 'vue';
 import { toast } from "vue-sonner";
 import { Button } from "~/components/ui/button";
 import { useTimelineStore } from '~/stores/timeline';
-import { useWindowVirtualizer } from '@tanstack/vue-virtual';
 
 definePageMeta({
   scrollToTop: false,
@@ -91,24 +75,8 @@ const state = reactive({
   hasNext: false,
 });
 
-const listContainerRef = ref<HTMLElement | null>(null);
-const listOffsetTop = ref(0);
-
-const rowVirtualizer = useWindowVirtualizer(computed(() => ({
-  count: state.memoList.length,
-  estimateSize: () => 380,
-  overscan: 5,
-  scrollMargin: listOffsetTop.value,
-  getItemKey: (index: number) => state.memoList[index]?.id ?? index,
-})));
-
-const virtualRows = computed(() => rowVirtualizer.value.getVirtualItems());
-const totalSize = computed(() => rowVirtualizer.value.getTotalSize());
-
-const getRowKey = (index: number) => state.memoList[index]?.id ?? `idx-${index}`;
-const measureRow = (el: Element | null) => {
-  if (el) rowVirtualizer.value.measureElement(el);
-};
+const loadMoreSentinel = ref<HTMLElement | null>(null);
+let intersectionObserver: IntersectionObserver | null = null;
 
 let scrollSaveTimer: ReturnType<typeof setTimeout> | null = null;
 const handleScroll = () => {
@@ -118,20 +86,16 @@ const handleScroll = () => {
   }, 150);
 };
 
-const updateListOffsetTop = () => {
-  if (listContainerRef.value) {
-    const rect = listContainerRef.value.getBoundingClientRect();
-    listOffsetTop.value = rect.top + window.scrollY;
-  }
+const setupObserver = () => {
+  if (intersectionObserver) intersectionObserver.disconnect();
+  if (!loadMoreSentinel.value) return;
+  intersectionObserver = new IntersectionObserver((entries) => {
+    if (entries[0]?.isIntersecting && state.hasNext && !loadLock) {
+      loadMore();
+    }
+  }, { rootMargin: '300px' });
+  intersectionObserver.observe(loadMoreSentinel.value);
 };
-
-watch(virtualRows, (items) => {
-  if (!items.length) return;
-  const lastItem = items[items.length - 1];
-  if (lastItem.index >= state.memoList.length - 3 && state.hasNext && !loadLock) {
-    loadMore();
-  }
-});
 
 onMounted(async () => {
   if (timelineStore.hasCache && timelineStore.memoList.length > 0) {
@@ -140,25 +104,22 @@ onMounted(async () => {
     state.hasNext = timelineStore.hasNext;
     const savedScrollTop = timelineStore.scrollTop;
     await nextTick();
-    updateListOffsetTop();
-    await nextTick();
     window.scrollTo(0, savedScrollTop);
   } else {
     await firstLoad();
     welcome();
-    await nextTick();
-    updateListOffsetTop();
   }
 
+  await nextTick();
+  setupObserver();
   window.addEventListener('scroll', handleScroll, { passive: true });
-  window.addEventListener('resize', updateListOffsetTop, { passive: true });
 });
 
 onBeforeUnmount(() => {
   if (typeof window !== 'undefined') {
     timelineStore.setScrollTop(window.scrollY);
     window.removeEventListener('scroll', handleScroll);
-    window.removeEventListener('resize', updateListOffsetTop);
+    if (intersectionObserver) intersectionObserver.disconnect();
     if (scrollSaveTimer) clearTimeout(scrollSaveTimer);
   }
 });

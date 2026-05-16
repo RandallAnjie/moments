@@ -1,16 +1,13 @@
 <template>
   <div class="header relative mb-12">
-    <div class="w-full aspect-[3/1] max-h-[300px] overflow-hidden bg-gray-200 dark:bg-gray-800">
-      <img
-          v-if="user.coverUrl"
-          :key="user.headImgKey"
-          class="header-img w-full h-full object-cover"
-          :src="getImgUrl(user.coverUrl)"
-          alt=""
-          loading="eager"
-          fetchpriority="high"
-      />
-    </div>
+    <img
+        :key="user.headImgKey"
+        class="header-img w-full max-h-[300px]"
+        :src="user.coverUrl ? getImgUrl(user.coverUrl) : ''"
+        alt=""
+        loading="eager"
+        fetchpriority="high"
+    />
     <div class="absolute right-2 left-2 bottom-[-40px]" style="width: calc(100% - 16px)">
       <div class="userinfo flex flex-col">
         <div class="flex flex-row items-center gap-4 justify-end">
