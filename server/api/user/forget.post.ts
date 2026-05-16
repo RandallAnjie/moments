@@ -5,6 +5,7 @@ import { eq } from 'drizzle-orm'
 import { hashPassword } from '~/lib/auth/password'
 import { useDb } from '~/lib/db/d1'
 import { users } from '~/lib/db/schema'
+import { getCfEnv } from '~/lib/cf-env'
 
 type registerReq = {
   user: string
@@ -13,11 +14,10 @@ type registerReq = {
 }
 
 function getKv(event: any): KVNamespace {
-  const kv = event?.context?.cloudflare?.env?.KV as KVNamespace | undefined
+  const kv = getCfEnv(event).KV
   if (!kv) {
     throw new Error(
-      'KV binding "KV" is not available on event.context.cloudflare.env. ' +
-        'Run via `wrangler pages dev` (or deploy to Pages) so the binding is injected.',
+      'KV binding "KV" is not available on event.context.cloudflare.env or globalThis.__CF_ENV__.',
     )
   }
   return kv

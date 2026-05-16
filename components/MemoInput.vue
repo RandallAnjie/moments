@@ -318,7 +318,6 @@ import type { Memo } from '~/lib/types';
 import { useAnimate } from '@vueuse/core';
 import { Image, Music4, Settings, Trash2, LogOut,  Link, Youtube, CircleX, Check, FileSliders } from 'lucide-vue-next'
 import { ref } from 'vue';
-import jsonp from "jsonp";
 import {toast} from "vue-sonner";
 import {
   TagsInputInput,
@@ -713,6 +712,7 @@ const getTmpLocation = async () => {
       };
       const queryString = new URLSearchParams(params).toString();
       const jsonpUrl = `${url}?${queryString}`;
+      const { default: jsonp } = await import('jsonp');
       jsonp(jsonpUrl, null, (err: any, data: any) => {
         if (err) {
           return '获取位置失败';

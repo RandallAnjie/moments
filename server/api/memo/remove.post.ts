@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { useDb } from '~/lib/db/d1'
 import { memos } from '~/lib/db/schema'
+import { getCfEnv } from '~/lib/cf-env'
 
 type RemoveMemoReq = {
   memoId?: number
@@ -29,7 +30,7 @@ export default defineEventHandler(async (event) => {
 
   await db.delete(memos).where(eq(memos.id, memoId))
 
-  const uploads = event.context.cloudflare?.env.UPLOADS
+  const uploads = getCfEnv(event).UPLOADS
   if (uploads && memo.imgs) {
     const keys = memo.imgs
       .split(',')

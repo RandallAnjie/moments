@@ -13,6 +13,7 @@
 // {success:false} without making a network call.
 import type { H3Event } from 'h3'
 import { eq } from 'drizzle-orm'
+import { getCfEnv } from '~/lib/cf-env'
 import { useDb } from '~/lib/db/d1'
 import { config as configTable } from '~/lib/db/schema'
 
@@ -42,7 +43,7 @@ export async function sendEmail(
     return { success: false, error: 'Email service is not enabled' }
   }
 
-  const env = (event.context as any)?.cloudflare?.env ?? {}
+  const env = getCfEnv(event) as Record<string, any>
   const fromAddress =
     (siteConfig.mailUser && siteConfig.mailUser.trim()) ||
     (typeof env.MAIL_FROM === 'string' ? env.MAIL_FROM : '')

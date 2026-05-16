@@ -10,6 +10,7 @@ import { eq } from 'drizzle-orm'
 import { sendEmail } from '~/utils/sendEmail'
 import { useDb, type DB } from '~/lib/db/d1'
 import { config as configTable, systemConfig, users } from '~/lib/db/schema'
+import { getCfEnv } from '~/lib/cf-env'
 
 type sendMailReq = {
   email: string
@@ -17,11 +18,10 @@ type sendMailReq = {
 }
 
 function getKv(event: any): KVNamespace {
-  const kv = event?.context?.cloudflare?.env?.KV as KVNamespace | undefined
+  const kv = getCfEnv(event).KV
   if (!kv) {
     throw new Error(
-      'KV binding "KV" is not available on event.context.cloudflare.env. ' +
-        'Run via `wrangler pages dev` (or deploy to Pages) so the binding is injected.',
+      'KV binding "KV" is not available on event.context.cloudflare.env or globalThis.__CF_ENV__.',
     )
   }
   return kv

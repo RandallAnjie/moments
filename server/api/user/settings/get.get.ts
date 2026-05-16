@@ -74,7 +74,7 @@ export default defineEventHandler(async (event) => {
       // Legacy bcrypt hash of "admin" — verifyPassword falls back to bcryptjs and
       // transparently re-hashes to PBKDF2 on the first successful login.
       const defaultPasswordHash =
-        '$2b$10$F56fAwmRR9hBPXhPjVMLtusMgC7Gxp5VzTiWSXl28InVMgTpm2fYK'
+        '$2a$10$J0SQQJcEAg4jQGZNCPHndu.Ehh6EZQxjhvuPkhJTpPBMqtFStbCYm'
       await db.insert(users).values({
         username: 'admin',
         nickname: 'admin',

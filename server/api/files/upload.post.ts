@@ -1,4 +1,5 @@
 import short from 'short-uuid'
+import { getCfEnv } from '~/lib/cf-env'
 
 type FileInfo = { name: string; filename: string; data: Uint8Array; type: string }
 
@@ -20,7 +21,7 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  const uploads = event.context.cloudflare?.env.UPLOADS
+  const uploads = getCfEnv(event).UPLOADS
   if (!uploads) {
     return {
       success: false,

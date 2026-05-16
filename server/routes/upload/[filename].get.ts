@@ -1,10 +1,12 @@
+import { getCfEnv } from '~/lib/cf-env'
+
 export default defineEventHandler(async (event) => {
   const filename = getRouterParam(event, 'filename')
   if (!filename) {
     throw createError({ statusCode: 400, statusMessage: 'filename is required' })
   }
 
-  const uploads = event.context.cloudflare?.env.UPLOADS
+  const uploads = getCfEnv(event).UPLOADS
   if (!uploads) {
     throw createError({ statusCode: 500, statusMessage: 'R2 UPLOADS binding is not configured' })
   }

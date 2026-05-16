@@ -17,7 +17,7 @@ pages_build_output_dir = "./dist"
 [[d1_databases]]
 binding         = "DB"
 database_name   = "moments-db"
-database_id     = "PLACEHOLDER_D1_DATABASE_ID"
+database_id     = "6d8f0223-b9e5-422a-87c3-585f0195444c"
 migrations_dir  = "migrations"
 
 # ---------------------------------------------------------------------------
@@ -37,7 +37,7 @@ bucket_name = "moments-uploads"
 # ---------------------------------------------------------------------------
 [[kv_namespaces]]
 binding = "KV"
-id      = "PLACEHOLDER_KV_NAMESPACE_ID"
+id      = "e4b336a2cab0491192dccbc3a3e1f79e"
 
 # ---------------------------------------------------------------------------
 # Non-secret runtime vars. Put secrets (JWT_SECRET, RECAPTCHA_SECRET_KEY,
@@ -48,4 +48,4 @@ id      = "PLACEHOLDER_KV_NAMESPACE_ID"
 SITE_NAME           = "Moments"
 MAIL_FROM           = "noreply@example.com"
 MAIL_FROM_NAME      = "Moments"
-R2_PUBLIC_BASE_URL  = "https://pub-PLACEHOLDER.r2.dev"
+R2_PUBLIC_BASE_URL  = "https://pub-536ff76c3cb44477bf90094fa45646ee.r2.dev"

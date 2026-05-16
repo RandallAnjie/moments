@@ -30,7 +30,6 @@
 <script setup lang="ts">
 import { type Memo } from '~/lib/types';
 import {onMounted, onUnmounted, watch, ref, computed} from 'vue';
-import jsonp from 'jsonp';
 import {getImgUrl} from "~/lib/utils";
 import { Sun, MoonStar, LogIn, ArrowLeft } from 'lucide-vue-next'
 

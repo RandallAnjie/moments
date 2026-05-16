@@ -38,7 +38,6 @@
 <script setup lang="ts">
 import { type Memo } from '~/lib/types';
 import { onMounted, onBeforeUnmount, watch, ref, reactive } from 'vue';
-import jsonp from 'jsonp';
 import { toast } from "vue-sonner";
 import { Button } from "~/components/ui/button";
 
@@ -238,6 +237,7 @@ const welcome = async () => {
       const queryString = new URLSearchParams(params).toString();
       const jsonpUrl = `${url}?${queryString}`;
 
+      const { default: jsonp } = await import('jsonp');
       jsonp(jsonpUrl, null, (err, data) => {
         if (err) {
           console.error(err.message);

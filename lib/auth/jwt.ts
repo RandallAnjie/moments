@@ -15,6 +15,7 @@
 import jwt from '@tsndr/cloudflare-worker-jwt'
 import { eq } from 'drizzle-orm'
 import type { H3Event } from 'h3'
+import { getCfEnv } from '~/lib/cf-env'
 import { useDb } from '~/lib/db/d1'
 import { systemConfig } from '~/lib/db/schema'
 
@@ -78,8 +79,7 @@ async function loadOrCreateJwtKeyInDb(event: H3Event): Promise<string> {
 }
 
 function getEnv(event: H3Event): Record<string, unknown> | undefined {
-  return (event.context as { cloudflare?: { env?: Record<string, unknown> } })
-    ?.cloudflare?.env
+  return getCfEnv(event) as Record<string, unknown>
 }
 
 /** Resolve the active JWT signing secret for this request. */
