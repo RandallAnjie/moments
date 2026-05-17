@@ -52,6 +52,7 @@ import { onMounted, onBeforeUnmount, ref, reactive, nextTick, watch } from 'vue'
 import { toast } from "vue-sonner";
 import { Button } from "~/components/ui/button";
 import { useTimelineStore } from '~/stores/timeline';
+import { useUserCache } from '~/composables/useUserCache';
 
 definePageMeta({
   scrollToTop: false,
@@ -69,6 +70,7 @@ const searchMemo = async () => {
 
 const onlineUsers = ref<string>('');
 const timelineStore = useTimelineStore();
+const { primeFromServer } = useUserCache();
 
 const state = reactive({
   memoList: [] as Memo[],
@@ -164,6 +166,7 @@ const firstLoad = async () => {
     loading: '加载中...',
     success: (data) => {
       if (data.success) {
+        primeFromServer(data.referencedUsers);
         state.memoList = data.data as Memo[];
         state.hasNext = data.hasNext || false;
         timelineStore.setCache({
@@ -205,6 +208,7 @@ const loadMore = async () => {
         loading: '加载中...',
         success: (data) => {
           if (data.success) {
+            primeFromServer(data.referencedUsers);
             state.page += 1;
             if (Array.isArray(data.data)) {
               state.memoList.push(...data.data);

@@ -51,9 +51,24 @@ export function useUserCache() {
     return p
   }
 
+  /** 把后端 batch 返回的用户 map 一次性灌进缓存（来自 /api/memo/list 等）。 */
+  function primeFromServer(map: Record<string, Partial<CachedUser>> | null | undefined) {
+    if (!map) return
+    for (const k in map) {
+      const u = map[k]
+      cache.value[key(k)] = {
+        nickname: u?.nickname ?? null,
+        avatarUrl: u?.avatarUrl ?? null,
+        slogan: u?.slogan ?? null,
+        coverUrl: u?.coverUrl ?? null,
+      }
+    }
+  }
+
   return {
     cache,
     fetchUser,
+    primeFromServer,
     /** 已经缓存了就直接返回（同步），否则返回 null */
     peekNickname(id: string | number): string | null {
       return cache.value[key(id)]?.nickname ?? null

@@ -201,6 +201,70 @@ export default defineEventHandler(async (event) => {
     comments: memo.comments.slice(0, 5),
   }))
 
+  // ---------------------------------------------------------------------------
+  // 顺便把这一页所有 memo 引用到的用户（atpeople + avpeople + comment 作者）
+  // 的昵称/头像 一起 batch 出来，让前端 SPA 缓存命中，省掉每条 memo 单独
+  // /api/user/settings/get?user=X 的请求（Cloudflare 上 request-count 敏感）。
+  // ---------------------------------------------------------------------------
+  const referencedUserIds = new Set<number>()
+  for (const memo of data) {
+    if (memo.atpeople) {
+      for (const id of memo.atpeople.split(',')) {
+        const n = parseInt(id, 10)
+        if (n > 0) referencedUserIds.add(n)
+      }
+    }
+    if (memo.avpeople) {
+      for (const id of memo.avpeople.split(',')) {
+        const n = parseInt(id, 10)
+        if (n > 0) referencedUserIds.add(n)
+      }
+    }
+    for (const c of memo.comments) {
+      if (typeof c.author === 'number' && c.author > 0) referencedUserIds.add(c.author)
+      if (typeof c.replyToUser === 'number' && c.replyToUser > 0) referencedUserIds.add(c.replyToUser)
+      if (typeof c.linkedUser === 'number' && c.linkedUser > 0) referencedUserIds.add(c.linkedUser)
+    }
+  }
+  // 主作者那 N 个用户已经在 userById 里了，不用再查
+  for (const id of userById.keys()) referencedUserIds.delete(id)
+
+  const referencedUsers: Record<string, {
+    nickname: string | null
+    avatarUrl: string | null
+    slogan: string | null
+    coverUrl: string | null
+  }> = {}
+  // 先把 userById 里的也带上
+  for (const [id, u] of userById) {
+    referencedUsers[String(id)] = {
+      nickname: u.nickname,
+      avatarUrl: u.avatarUrl,
+      slogan: u.slogan,
+      coverUrl: u.coverUrl,
+    }
+  }
+  if (referencedUserIds.size > 0) {
+    const extra = await db
+      .select({
+        id: users.id,
+        nickname: users.nickname,
+        avatarUrl: users.avatarUrl,
+        slogan: users.slogan,
+        coverUrl: users.coverUrl,
+      })
+      .from(users)
+      .where(inArray(users.id, Array.from(referencedUserIds)))
+    for (const u of extra) {
+      referencedUsers[String(u.id)] = {
+        nickname: u.nickname,
+        avatarUrl: u.avatarUrl,
+        slogan: u.slogan,
+        coverUrl: u.coverUrl,
+      }
+    }
+  }
+
   // Total count for pagination. When a user filter is active the count is
   // scoped to that user; otherwise it spans every memo matching the filters.
   const totalWhere = userIdFilter !== undefined
@@ -216,6 +280,7 @@ export default defineEventHandler(async (event) => {
 
   return {
     data,
+    referencedUsers,
     hasNext: page < totalPage,
     success: true,
   }
