@@ -1,6 +1,5 @@
 <template>
   <div class="flex flex-row gap-2 items-center text-sm">
-    <!-- 状态标签 + 切换按钮 -->
     <button
       type="button"
       class="flex flex-row items-center gap-1.5 px-3 py-1.5 rounded border border-[#e1e1e1] dark:border-[#3a3a3a] hover:bg-[#f4f4f4] dark:hover:bg-[#252525] transition-colors"
@@ -16,14 +15,6 @@
         class="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-[#ef4444] text-white text-[10px] font-medium"
       >{{ unreadCount > 99 ? '99+' : unreadCount }}</span>
     </button>
-
-    <!-- 测试按钮（仅订阅后显示） -->
-    <button
-      v-if="state === 'subscribed'"
-      type="button"
-      class="text-xs text-[#576b95] hover:underline"
-      @click="onTest"
-    >发个测试</button>
   </div>
 </template>
 
@@ -66,19 +57,11 @@ async function onToggle() {
     } else if (state.value === 'unsubscribed') {
       await subscribe()
       toast.success('通知已开启')
+      // 订阅成功后自动发一条测试通知验证链路；失败就当没事，不打扰用户
+      try { await test() } catch {}
     }
   } catch (e: any) {
     toast.warning('操作失败：' + (e?.message ?? e))
-  }
-}
-
-async function onTest() {
-  try {
-    const r: any = await test()
-    if (r?.success) toast.success(`测试推送已发送（成功 ${r.sent} / 失败 ${r.failed}）`)
-    else toast.warning('测试推送失败：' + (r?.message ?? ''))
-  } catch (e: any) {
-    toast.warning('测试推送失败：' + (e?.message ?? e))
   }
 }
 
