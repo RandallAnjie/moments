@@ -87,7 +87,7 @@
       <div class="flex flex-row gap-2">
         <Button
             @click="submitMemo"
-            :disabled="(!content) && imgs.length === 0"
+            :disabled="((!content) && imgs.length === 0) || pendingUploads.length > 0"
         >提交</Button>
       </div>
     </div>
@@ -107,16 +107,30 @@
       <CircleX class="w-5 h-5 cursor-pointer" color="red" @click="clearExternalUrl" />
     </div>
 
-    <div class="grid grid-cols-3 my-2 gap-2" v-if="imgs && imgs.length > 0">
-      <div v-for="(img, index) in imgs" :key="index" class="relative" draggable="true"
+    <div class="grid grid-cols-3 my-2 gap-2" v-if="(imgs && imgs.length > 0) || pendingUploads.length > 0">
+      <!-- 已完成的上传 -->
+      <div v-for="(img, index) in imgs" :key="'done-'+index" class="relative" draggable="true"
            @dragstart="event => dragStart(event, index)"
            @dragover="dragOver"
            @drop="event => drop(event, index)">
-        <!-- Live Photo 用 still 那一半做缩略图，右上角 LIVE 角标 -->
-        <img :src="getImgUrl(previewSrc(img))" class="rounded object-cover h-full aspect-square max-h-[200px] cursor-grab" />
+        <img :src="getImgUrl(previewSrc(img))" class="rounded object-cover h-full aspect-square max-h-[200px] cursor-grab w-full" />
         <span v-if="img.includes('|')" class="absolute bottom-1 left-1 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded select-none pointer-events-none">LIVE</span>
         <Trash2 color="#379d1b" :size="15" class="absolute top-1 right-1 cursor-pointer"
                 @click="imgs.splice(index, 1)" />
+      </div>
+      <!-- 正在上传的占位（立刻显示本地预览 + 旋转 spinner + 不可拖动） -->
+      <div v-for="p in pendingUploads" :key="'pending-'+p.id"
+           class="relative rounded overflow-hidden bg-gray-100 dark:bg-neutral-800">
+        <img :src="p.blobUrl" class="rounded object-cover h-full aspect-square max-h-[200px] w-full opacity-60" />
+        <!-- 不定长度进度条（顶部条形动画） -->
+        <div class="absolute top-0 left-0 right-0 h-1 bg-black/10 overflow-hidden">
+          <div class="h-full bg-[#57BE6B] animate-pulse" style="width:100%; animation: progress-slide 1.2s ease-in-out infinite;"></div>
+        </div>
+        <!-- 中间居中的小 spinner -->
+        <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div class="w-7 h-7 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+        </div>
+        <span v-if="p.isLive" class="absolute bottom-1 left-1 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded select-none pointer-events-none">LIVE</span>
       </div>
     </div>
 
@@ -534,6 +548,16 @@ const drop = (event, dropIndex) => {
 
 
 const imgs = ref<string[]>([])
+
+// 上传进行中的占位项：用本地 blob URL 立刻显示缩略图，旁边一个旋转 spinner，
+// 上传完成后从这里删除、把真实 URL 推进 imgs。submit 时如果还有 pending 则提示。
+type PendingItem = {
+  id: number
+  blobUrl: string    // still 的本地预览 URL（来自 createObjectURL）
+  isLive?: boolean   // Live Photo 配对的标记
+}
+const pendingUploads = ref<PendingItem[]>([])
+let pendingIdSeq = 0
 const atpeople = ref<number[]>([])
 const atpeopleNickname = ref<string[]>([])
 
@@ -638,35 +662,57 @@ const uploadImgs = async (event: Event) => {
     groups.set(k, g)
   }
 
+  // 把所有 group 的占位条目先一次性塞进 pendingUploads（立刻有预览），
+  // 上传逻辑在后台并行跑，结果回来后从 pendingUploads 移除、推进 imgs
+  const tasks: Array<() => Promise<void>> = []
   for (const g of groups.values()) {
     if (g.still && g.video) {
-      // Live Photo pair: 上传两个，合并成 "still|video" 一项
-      let stillUrl = '', videoUrl = ''
-      await useUpload(g.still, async (res) => {
-        if (res.success) stillUrl = res.filename
-        else toast.warning('上传失败' + res.message)
+      const pid = ++pendingIdSeq
+      pendingUploads.value.push({
+        id: pid,
+        blobUrl: URL.createObjectURL(g.still),
+        isLive: true,
       })
-      await useUpload(g.video, async (res) => {
-        if (res.success) videoUrl = res.filename
-        else toast.warning('上传失败' + res.message)
+      const still = g.still, video = g.video
+      tasks.push(async () => {
+        let stillUrl = '', videoUrl = ''
+        await useUpload(still, (res) => { if (res.success) stillUrl = res.filename; else toast.warning('上传失败' + res.message) })
+        await useUpload(video, (res) => { if (res.success) videoUrl = res.filename; else toast.warning('上传失败' + res.message) })
+        const idx = pendingUploads.value.findIndex(p => p.id === pid)
+        if (idx >= 0) {
+          URL.revokeObjectURL(pendingUploads.value[idx].blobUrl)
+          pendingUploads.value.splice(idx, 1)
+        }
+        if (stillUrl && videoUrl) {
+          imgs.value = [...imgs.value, `${stillUrl}|${videoUrl}`]
+          toast.success('Live Photo 已添加')
+        }
       })
-      if (stillUrl && videoUrl) {
-        imgs.value = [...imgs.value, `${stillUrl}|${videoUrl}`]
-        toast.success('Live Photo 已添加')
-      }
       continue
     }
-    // 落单文件按原逻辑各自上传一项
     const lone = [g.still, g.video, ...g.extras].filter(Boolean) as File[]
     for (const f of lone) {
-      await useUpload(f, async (res) => {
-        if (res.success) imgs.value = [...imgs.value, res.filename]
-        else toast.warning('上传失败' + res.message)
+      const pid = ++pendingIdSeq
+      pendingUploads.value.push({
+        id: pid,
+        blobUrl: URL.createObjectURL(f),
+      })
+      tasks.push(async () => {
+        let url = ''
+        await useUpload(f, (res) => { if (res.success) url = res.filename; else toast.warning('上传失败' + res.message) })
+        const idx = pendingUploads.value.findIndex(p => p.id === pid)
+        if (idx >= 0) {
+          URL.revokeObjectURL(pendingUploads.value[idx].blobUrl)
+          pendingUploads.value.splice(idx, 1)
+        }
+        if (url) imgs.value = [...imgs.value, url]
       })
     }
   }
 
   inputEl.value = ''
+  // 全部 task 并行跑
+  await Promise.all(tasks.map(t => t()))
 }
 
 memoUpdateEvent.on((event: Memo) => {
@@ -936,6 +982,11 @@ img{
 @keyframes scroll {
   from { transform: translateX(100%); }
   to { transform: translateX(-100%); }
+}
+
+@keyframes progress-slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
 }
 
 .aplayer-lrc {
