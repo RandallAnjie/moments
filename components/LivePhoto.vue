@@ -1,9 +1,15 @@
 <template>
   <!-- 纯 LPK：outer 用 aspect-ratio 占住高度；fallback img 在 LPK 接管前显示；
        LPK container 是空盒，由 LPK 自己注入 canvas + video + 它自带的 Live 角标。
-       不再加自己的角标 / 不再覆盖 LPK 内部样式（之前那条 width:100% height:100% 把
-       LPK 自己的角标按钮一起拉伸成全屏了）。 -->
-  <div class="lpk-outer relative w-full overflow-hidden bg-gray-100" :style="outerStyle">
+       - data-src 让 FancyBox 知道点击进灯箱时该展示 still（FancyBox v5 用 data-src）
+       - 顶层 click 在 capture 阶段处理：落在 LPK 角标按钮上的点击 stopPropagation
+         避免触发 FancyBox -->
+  <div
+    class="lpk-outer relative w-full overflow-hidden bg-gray-100"
+    :style="outerStyle"
+    :data-src="photoSrcAbs"
+    @click.capture="onOuterClickCapture"
+  >
     <img
       v-show="!lpkReady"
       :src="photoSrcAbs"
@@ -55,6 +61,18 @@ function onStillLoaded(e: Event) {
   const img = e.target as HTMLImageElement
   if (img.naturalWidth > 0 && img.naturalHeight > 0) {
     aspect.value = `${img.naturalWidth} / ${img.naturalHeight}`
+  }
+}
+
+// 在 capture 阶段先于 FancyBox 的委托 click 跑：
+// 如果点击落在 LPK 自带的按钮（角标 / 播放控件）上，吃掉事件 → FancyBox 不会响应。
+// 普通区域的点击继续冒泡 → FancyBox 打开灯箱展示 still。
+// 长按由 LPK 自己接管 (touchstart/touchend)，浏览器不会再生成 click → FancyBox 也不会响应。
+function onOuterClickCapture(e: MouseEvent) {
+  const t = e.target as HTMLElement | null
+  if (!t) return
+  if (t.closest('button, [role="button"], a, [class*="lpk-button"], [class*="livephoto-button"]')) {
+    e.stopPropagation()
   }
 }
 
