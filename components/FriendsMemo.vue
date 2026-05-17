@@ -31,14 +31,13 @@
             :options="{ Carousel: { infinite: false } }"
         >
           <template v-for="(img, index) in imgs" :key="index">
-            <!-- Live Photo: imgs 中以 "still|video" 形式编码，长按播放 -->
-            <ClientOnly v-if="isLivePhoto(img)">
-              <LivePhoto
-                :photo-url="parseLivePhoto(img).still"
-                :video-url="parseLivePhoto(img).video"
-                :img-class="imgs.length === 1 ? 'cursor-pointer rounded full-cover-image-single' : 'rounded cursor-grab full-cover-image-mult'"
-              />
-            </ClientOnly>
+            <!-- Live Photo: imgs 中以 "still|video" 形式编码，长按播放（LivePhoto 自带 SSR safe 占位） -->
+            <LivePhoto
+              v-if="isLivePhoto(img)"
+              :photo-url="parseLivePhoto(img).still"
+              :video-url="parseLivePhoto(img).video"
+              :img-class="imgs.length === 1 ? 'cursor-pointer rounded full-cover-image-single' : 'rounded cursor-grab full-cover-image-mult'"
+            />
             <img
               v-else
               loading="lazy"

@@ -112,7 +112,9 @@
            @dragstart="event => dragStart(event, index)"
            @dragover="dragOver"
            @drop="event => drop(event, index)">
-        <img :src="getImgUrl(img)" class="rounded object-cover h-full aspect-square max-h-[200px] cursor-grab" />
+        <!-- Live Photo 用 still 那一半做缩略图，右上角 LIVE 角标 -->
+        <img :src="getImgUrl(previewSrc(img))" class="rounded object-cover h-full aspect-square max-h-[200px] cursor-grab" />
+        <span v-if="img.includes('|')" class="absolute bottom-1 left-1 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded select-none pointer-events-none">LIVE</span>
         <Trash2 color="#379d1b" :size="15" class="absolute top-1 right-1 cursor-pointer"
                 @click="imgs.splice(index, 1)" />
       </div>
@@ -613,6 +615,9 @@ const pasteImg = async (event: ClipboardEvent) => {
 // Live Photo：iOS 把动态照片导出为同名的 <basename>.HEIC + <basename>.MOV 一对，
 // 用户在文件选择器多选两个文件时按基名配对，存为 imgs 中的 "still|video" 一项。
 // 单独的图片/视频按原逻辑各自一项。
+// 缩略图用 still 那一半（Live Photo 编码 "still|video"）
+const previewSrc = (entry: string) => entry.includes('|') ? entry.split('|')[0] : entry
+
 const baseName = (n: string) => n.replace(/\.[^.]+$/, '')
 const isImageFile = (f: File) => f.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp|heic|heif|tiff?)$/i.test(f.name)
 const isVideoFile = (f: File) => f.type.startsWith('video/') || /\.(mov|mp4|m4v)$/i.test(f.name)
