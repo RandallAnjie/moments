@@ -274,17 +274,28 @@ const timeFormateFunction = (time: string) => {
     return dayjs(time).locale('zh-cn').fromNow().replaceAll(/\s+/g, '')
   }
 }
-const refreshAtpeople = async ()=>{
-  if(props.memo.atpeople?.split(',')){
-    atpeoplenickname.value = ''
-    for(let i=0;i<props.memo.atpeople?.split(',').length;i++){
-      $fetch('/api/user/settings/get?user='+props.memo.atpeople?.split(',')[i]).then(res => {
-        if (res.success) {
-          atpeoplenickname.value += ' ' + res.data.nickname
-        }
-      })
-    }
+const { fetchUser, peekNickname } = useUserCache()
+
+const refreshAtpeople = async () => {
+  if (!props.memo.atpeople) return
+  const ids = props.memo.atpeople.split(',').filter(Boolean)
+  // 先用缓存填一遍，避免初始为空导致"提到了" 慢慢出来的视觉效果
+  const cachedNames: string[] = []
+  const toFetch: string[] = []
+  for (const id of ids) {
+    const cached = peekNickname(id)
+    if (cached) cachedNames.push(cached)
+    else toFetch.push(id)
   }
+  atpeoplenickname.value = cachedNames.length ? ' ' + cachedNames.join(' ') : ''
+
+  // 没缓存的并行 fetch（同一 id 跨组件自动 dedup），完成后增量补到字符串里
+  await Promise.all(
+    toFetch.map(async (id) => {
+      const user = await fetchUser(id)
+      if (user.nickname) atpeoplenickname.value += ' ' + user.nickname
+    })
+  )
 }
 
 refreshAtpeople()
@@ -335,26 +346,32 @@ onMounted(async () => {
 
   await nextTick()
 
-  // 父级 .memo-row 用了 content-visibility: auto，视口外元素 scrollHeight/clientHeight
-  // 都会是 0；用 IntersectionObserver 等它真正可见时再判断溢出，避免「全文」按钮在长文上不出现。
-  const runCheck = () => {
+  // 父级 .memo-row 有 content-visibility: auto，视口外的元素 clientHeight 是 0。
+  // 用 ResizeObserver 在元素一拿到真实高度（content-visibility 激活那一刻）就立刻判断溢出
+  // —— 比 IntersectionObserver 更早，因为 RO 在浏览器内部布局阶段触发，
+  //    避免「全文」按钮要等用户滚到才慢吞吞出现的视觉延迟。
+  const runCheck = (): boolean => {
     if (!el.value || el.value.clientHeight === 0) return false
     checkOverflow()
-    const innerImgs = el.value.querySelectorAll('img')
-    innerImgs.forEach((img: HTMLImageElement) => {
-      if (!img.complete) {
-        img.addEventListener('load', checkOverflow, { once: true })
-      }
-    })
     return true
   }
-  if (!runCheck()) {
-    const measureObserver = new IntersectionObserver((entries) => {
-      if (entries[0]?.isIntersecting && runCheck()) {
-        measureObserver.disconnect()
+
+  // 给所有内嵌 img 挂 onload：图片晚于文本载入会改变高度，重测一次
+  if (el.value) {
+    el.value.querySelectorAll('img').forEach((img: HTMLImageElement) => {
+      if (!img.complete) {
+        img.addEventListener('load', () => {
+          if (!showAll.value) checkOverflow()
+        }, { once: true })
       }
-    }, { rootMargin: '200px' })
-    measureObserver.observe(el.value)
+    })
+  }
+
+  if (!runCheck() && el.value) {
+    const ro = new ResizeObserver(() => {
+      if (runCheck()) ro.disconnect()
+    })
+    ro.observe(el.value)
   }
 })
 
