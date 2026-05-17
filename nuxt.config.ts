@@ -43,6 +43,9 @@ export default defineNuxtConfig({
       // 静态文件，workbox 之前在 createHandlerBoundToURL("/") 上炸 non-precached-url。
       // 导航请求走下面 runtimeCaching 里的 NetworkFirst（在线优先，离线兜底）
       globPatterns: ["**/*.{js,css,ico,png,svg,webp,woff,woff2}"],
+      // heic-to 包含 libheif WASM ~2.7MB，太大不预缓存，按需动态 import 即可
+      // （触发上传 HEIC 时才下载；之后走 runtimeCaching 的 static-resources 缓存）
+      globIgnores: ["**/heic-converter*.js"],
       // 预缓存清单里出现 404 时（部署交错期）容忍而不是整体失败
       navigateFallback: null,
       runtimeCaching: [
@@ -127,6 +130,23 @@ export default defineNuxtConfig({
     esbuild: {
       options: {
         target: "esnext",
+      },
+    },
+  },
+  vite: {
+    build: {
+      rollupOptions: {
+        output: {
+          // 让 chunk 文件名带上其名字（默认 nuxt 配置只用 hash），方便
+          // workbox.globIgnores 按名字精确排除
+          chunkFileNames: '_nuxt/[name]-[hash].js',
+          manualChunks(id: string) {
+            // 把 heic-to + 它带的 libheif WASM 包打成独立 chunk，文件名固定前缀
+            if (id.includes('/heic-to/') || id.includes('libheif')) {
+              return 'heic-converter';
+            }
+          },
+        },
       },
     },
   },
