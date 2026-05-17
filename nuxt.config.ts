@@ -11,7 +11,15 @@ export default defineNuxtConfig({
   pwa: {
     registerType: "autoUpdate",
     injectRegister: "auto",
-    strategies: "generateSW",
+    // 切到 injectManifest：我们自己写 SW（要处理 push event），workbox 帮忙打 precache
+    strategies: "injectManifest",
+    srcDir: "service-worker",
+    filename: "sw.ts",
+    injectManifest: {
+      globPatterns: ["**/*.{js,css,ico,png,svg,webp,woff,woff2}"],
+      globIgnores: ["**/heic-converter*.js"],
+      maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
+    },
     manifest: {
       name: "Randall的小屋",
       short_name: "Moments",
@@ -32,77 +40,7 @@ export default defineNuxtConfig({
         { src: "/pwa-maskable-512x512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
       ],
     },
-    workbox: {
-      // 新 SW 立刻接管 + 释放旧 client，避免老页面拿着旧 SW 去 fetch 已经
-      // 不存在的旧 asset hash（bad-precaching-response: ... 404）
-      skipWaiting: true,
-      clientsClaim: true,
-      // 把上一版本遗留的 precache 缓存清掉
-      cleanupOutdatedCaches: true,
-      // 不再 precache HTML，也不再设 navigateFallback —— SSR 站点的 "/" 没有
-      // 静态文件，workbox 之前在 createHandlerBoundToURL("/") 上炸 non-precached-url。
-      // 导航请求走下面 runtimeCaching 里的 NetworkFirst（在线优先，离线兜底）
-      globPatterns: ["**/*.{js,css,ico,png,svg,webp,woff,woff2}"],
-      // heic-to 包含 libheif WASM ~2.7MB，太大不预缓存，按需动态 import 即可
-      // （触发上传 HEIC 时才下载；之后走 runtimeCaching 的 static-resources 缓存）
-      globIgnores: ["**/heic-converter*.js"],
-      // 预缓存清单里出现 404 时（部署交错期）容忍而不是整体失败
-      navigateFallback: null,
-      runtimeCaching: [
-        // SSR 页面：在线优先，无网络就回缓存
-        {
-          urlPattern: ({ request, sameOrigin, url }) =>
-            sameOrigin && request.mode === 'navigate'
-            && !url.pathname.startsWith('/api/')
-            && !url.pathname.startsWith('/upload/'),
-          handler: "NetworkFirst",
-          options: {
-            cacheName: "pages-cache",
-            networkTimeoutSeconds: 5,
-            expiration: { maxEntries: 30, maxAgeSeconds: 60 * 60 * 24 * 7 },
-            cacheableResponse: { statuses: [200] },
-          },
-        },
-        {
-          urlPattern: ({ url }) => url.pathname.startsWith("/upload/"),
-          handler: "StaleWhileRevalidate",
-          options: {
-            cacheName: "uploads-cache",
-            expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 30 },
-            cacheableResponse: { statuses: [0, 200] },
-          },
-        },
-        {
-          urlPattern: ({ url }) => url.pathname.startsWith("/_nuxt/"),
-          handler: "CacheFirst",
-          options: {
-            cacheName: "nuxt-assets",
-            expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 365 },
-            cacheableResponse: { statuses: [0, 200] },
-          },
-        },
-        {
-          urlPattern: ({ request, url, sameOrigin }) =>
-            sameOrigin && request.destination === "image" && !url.pathname.startsWith("/upload/"),
-          handler: "StaleWhileRevalidate",
-          options: {
-            cacheName: "images-cache",
-            expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 * 30 },
-            cacheableResponse: { statuses: [0, 200] },
-          },
-        },
-        {
-          urlPattern: ({ request, sameOrigin }) =>
-            sameOrigin && (request.destination === "style" || request.destination === "script" || request.destination === "font"),
-          handler: "StaleWhileRevalidate",
-          options: {
-            cacheName: "static-resources",
-            expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 * 30 },
-            cacheableResponse: { statuses: [0, 200] },
-          },
-        },
-      ],
-    },
+    // workbox 的 runtimeCaching / skipWaiting 等改到了自定义 SW 里（service-worker/sw.ts）
     client: {
       installPrompt: true,
     },
@@ -157,6 +95,8 @@ export default defineNuxtConfig({
       cfImageTransform: ['on', 'true', '1', 'yes'].includes(
         (process.env.CF_IMAGE_TRANSFORM || '').toLowerCase(),
       ),
+      // Web Push VAPID 公钥（浏览器订阅时需要）。私钥/subject 在 server 端用
+      vapidPublicKey: process.env.VAPID_PUBLIC_KEY || '',
     },
   },
   app: {

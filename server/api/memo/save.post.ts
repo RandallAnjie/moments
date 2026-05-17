@@ -9,6 +9,7 @@ import { eq } from 'drizzle-orm'
 import { aliTextJudge } from '~/utils/aliTextJudge'
 import { sendEmail } from '~/utils/sendEmail'
 import { useDb } from '~/lib/db/d1'
+import { pushToUser } from '~/lib/push'
 import { config as configTable, memos, systemConfig, users } from '~/lib/db/schema'
 
 type SaveMemoReq = {
@@ -156,6 +157,8 @@ export default defineEventHandler(async (event) => {
     resultId = insertedRows[0]!.id
   }
 
+  // 给被 @ 的人发 web push（去重 + 跳过自己）
+  const pushTargets = new Set<number>()
   if (atpeople && atpeople.length > 0) {
     const senderRows = await db
       .select({ nickname: users.nickname, eMail: users.eMail })
@@ -165,6 +168,7 @@ export default defineEventHandler(async (event) => {
     const sender = senderRows[0] ?? null
     const senderNickname = sender?.nickname ?? ''
     for (const item of atpeople) {
+      if (item && item !== userId) pushTargets.add(item)
       const targetRows = await db
         .select({ eMail: users.eMail })
         .from(users)
@@ -201,6 +205,26 @@ export default defineEventHandler(async (event) => {
         }
       }
     }
+  }
+
+  // 发 web push 给被 @ 的人
+  if (pushTargets.size > 0) {
+    const senderRowsForPush = await db
+      .select({ nickname: users.nickname })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1)
+    const senderNick = senderRowsForPush[0]?.nickname ?? '某人'
+    await Promise.allSettled(
+      Array.from(pushTargets).map((uid) =>
+        pushToUser(event, uid, {
+          title: `${senderNick} 提到了你`,
+          body: (body.content || '').slice(0, 80),
+          url: `/detail/${resultId}`,
+          tag: `at-memo-${resultId}`,
+        }).catch(() => null),
+      ),
+    )
   }
 
   return {

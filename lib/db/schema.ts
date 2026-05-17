@@ -152,6 +152,24 @@ export const systemConfig = sqliteTable(
   }),
 )
 
+// Web Push 浏览器订阅。同一 user 可有多个 endpoint（多设备 / 浏览器）
+export const pushSubscriptions = sqliteTable(
+  'PushSubscription',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    userId: integer('userId').notNull(),
+    endpoint: text('endpoint').notNull().unique(),
+    p256dh: text('p256dh').notNull(),
+    auth: text('auth').notNull(),
+    createdAt: text('createdAt').notNull(),
+  },
+  (t) => ({
+    userIdIdx: index('PushSubscription_userId_idx').on(t.userId),
+  }),
+)
+export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect
+export type NewPushSubscriptionRow = typeof pushSubscriptions.$inferInsert
+
 export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
 export type Memo = typeof memos.$inferSelect

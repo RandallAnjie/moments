@@ -49,3 +49,6 @@ SITE_NAME           = "Moments"
 MAIL_FROM           = "noreply@example.com"
 MAIL_FROM_NAME      = "Moments"
 R2_PUBLIC_BASE_URL  = "https://pub-536ff76c3cb44477bf90094fa45646ee.r2.dev"
+# Web Push 公钥（VAPID）。私钥 VAPID_PRIVATE_KEY 走 pages secret；
+# subject VAPID_SUBJECT 也走 secret（推荐 mailto:<your-email>）。
+VAPID_PUBLIC_KEY    = "BBWjYp1l-pjKkNcjNghpQb5B7DmwtnOhLsCbBERCUbzSI40D5CouDewrIg5sWTpXb1ClbJBCNE_VZmxof395Ch8"

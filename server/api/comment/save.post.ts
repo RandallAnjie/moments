@@ -8,6 +8,7 @@ import { eq } from 'drizzle-orm'
 import { aliTextJudge } from '~/utils/aliTextJudge'
 import { sendEmail } from '~/utils/sendEmail'
 import { useDb } from '~/lib/db/d1'
+import { pushToUser } from '~/lib/push'
 import type { Config } from '~/lib/db/schema'
 import {
   comments,
@@ -209,6 +210,9 @@ export default defineEventHandler(async (event) => {
     updatedAt: now,
   })
 
+  // 收集要 web-push 的目标 userId，去重，最后统一发
+  const pushTargets = new Map<number, { title: string; body: string; tag: string }>()
+
   if (siteConfig) {
     const notificationList: string[] = []
     notificationList.push(email || '')
@@ -236,6 +240,13 @@ export default defineEventHandler(async (event) => {
           message: `用户 ${username} 回复了您，他回复道: ${content}`,
           time: now,
         })
+        if (replied.linkedUser && replied.linkedUser !== ctxUserId) {
+          pushTargets.set(replied.linkedUser, {
+            title: `${username} 回复了你的评论`,
+            body: content.slice(0, 80),
+            tag: `reply-${memoId}-${replyToId}`,
+          })
+        }
         let tmpmsg = `您在moments中的评论有新回复！用户名为:  ${username} 回复了您的评论(${replied.content})，他回复道: ${content}，点击查看: ${siteUrl}/detail/${memoId}`
         const templateRows = await db
           .select()
@@ -290,6 +301,13 @@ export default defineEventHandler(async (event) => {
             message: `用户 ${username} 在提及了您的动态中发表了评论，他说: ${content}`,
             time: now,
           })
+          if (targetId && targetId !== ctxUserId) {
+            pushTargets.set(targetId, {
+              title: `${username} 在你被提及的动态下评论了`,
+              body: content.slice(0, 80),
+              tag: `at-comment-${memoId}`,
+            })
+          }
           if (siteConfig.enableEmail) {
             let tmpmsg = `有一条新提及您的动态！用户名为:  ${username} 的用户在提及了您的动态中发表了评论，他说: ${content}，点击查看: ${siteUrl}/detail/${memoId}`
             const templateRows = await db
@@ -340,6 +358,13 @@ export default defineEventHandler(async (event) => {
           message: `用户 ${username} 在您的moment中发表了评论: ${content}`,
           time: now,
         })
+        if (memo.userId !== ctxUserId) {
+          pushTargets.set(memo.userId, {
+            title: `${username} 评论了你的 Moment`,
+            body: content.slice(0, 80),
+            tag: `comment-${memoId}`,
+          })
+        }
         if (siteConfig.enableEmail) {
           let tmpmsg = `您的moments有新评论！用户名为:  ${username} 在您的moment中发表了评论: ${content}，点击查看: ${siteUrl}/detail/${memoId}`
           const templateRows = await db
@@ -366,6 +391,15 @@ export default defineEventHandler(async (event) => {
         }
       }
     }
+  }
+
+  // 统一发 web push（失败也不要阻塞响应）
+  if (pushTargets.size > 0) {
+    await Promise.allSettled(
+      Array.from(pushTargets.entries()).map(([uid, p]) =>
+        pushToUser(event, uid, { ...p, url: `/detail/${memoId}` }).catch(() => null),
+      ),
+    )
   }
 
   return { success: true }

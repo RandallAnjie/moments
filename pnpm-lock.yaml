@@ -171,6 +171,24 @@ importers:
       vue-template-compiler:
         specifier: ^2.7.16
         version: 2.7.16
+      workbox-cacheable-response:
+        specifier: ^7.4.1
+        version: 7.4.1
+      workbox-core:
+        specifier: ^7.4.1
+        version: 7.4.1
+      workbox-expiration:
+        specifier: ^7.4.1
+        version: 7.4.1
+      workbox-precaching:
+        specifier: ^7.4.1
+        version: 7.4.1
+      workbox-routing:
+        specifier: ^7.4.1
+        version: 7.4.1
+      workbox-strategies:
+        specifier: ^7.4.1
+        version: 7.4.1
       wrangler:
         specifier: ^3.91.0
         version: 3.114.17(@cloudflare/workers-types@4.20260515.1)

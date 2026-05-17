@@ -11,6 +11,9 @@ const needLoginUrl = [
   '/api/user/settings/save',
   '/api/user/settings/full',
   '/api/sendEmail',
+  '/api/push/subscribe',
+  '/api/push/unsubscribe',
+  '/api/push/test',
 ]
 
 const needAdminUrl = [

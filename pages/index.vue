@@ -17,6 +17,7 @@
           @click="searchMemo"
       >搜索</Button>
     </div>
+    <PushBell v-if="token" class="px-10 pt-1 pb-3" />
     <div class="content flex flex-col gap-0">
       <div v-if="state.memoList.length === 0 && !token" class="text-center">
         <div class="my-2 text-sm">什么也没有,赶紧去登录发表Moments吧!</div>
