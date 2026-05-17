@@ -130,6 +130,15 @@ export default defineNuxtConfig({
       },
     },
   },
+  runtimeConfig: {
+    public: {
+      // 通过 env CF_IMAGE_TRANSFORM=on / true / 1 启用 Cloudflare 图片转换；
+      // 默认关闭以免 zone 上没启用 Image Transformations 时所有 /cdn-cgi/image 全 404
+      cfImageTransform: ['on', 'true', '1', 'yes'].includes(
+        (process.env.CF_IMAGE_TRANSFORM || '').toLowerCase(),
+      ),
+    },
+  },
   app: {
     // head: {
     //   style: [
