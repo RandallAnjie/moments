@@ -1,75 +1,110 @@
 <template>
-  <!-- 用 <video> + poster 直接做 Live Photo 交互：
-       - 默认显示 still（poster）
-       - 长按 / hover 播放视频；松开自动停回 poster
-       - preload=none：列表里多张 Live Photo 不会自动拉视频，节省流量
-       - 不再依赖 Apple LPK，省一次外部 CDN 请求 + 更稳跨浏览器 -->
-  <div class="live-photo-container relative inline-block w-full">
-    <video
-      ref="videoEl"
-      :poster="posterUrl"
-      :src="videoUrl"
-      :class="imgClass"
-      muted
-      playsinline
-      loop
-      preload="none"
-      @mousedown.prevent="startPlay"
-      @touchstart.prevent="startPlay"
-      @mouseup="stopPlay"
-      @mouseleave="stopPlay"
-      @touchend="stopPlay"
-      @touchcancel="stopPlay"
-    />
+  <!-- 外层 wrap：badge 放这里，不会被 LPK augment 时连带删除
+       内层 container：LPK 接管的元素，data-photo-src / data-video-src 由它读 -->
+  <div class="live-photo-outer relative inline-block w-full">
+    <div
+      ref="container"
+      class="live-photo-inner block w-full"
+      :data-photo-src="photoSrcAbs"
+      :data-video-src="videoSrcAbs"
+    >
+      <!-- 占位 still：LPK 加载/接管前用户就能看到内容；container 由它确定高度 -->
+      <img :src="photoSrcAbs" :class="imgClass" loading="lazy" alt="" />
+    </div>
     <span
-      class="absolute top-1 right-1 bg-black/45 text-white text-[10px] px-1.5 py-0.5 rounded select-none pointer-events-none uppercase tracking-wide"
+      class="absolute top-1 right-1 bg-black/55 text-white text-[10px] px-1.5 py-0.5 rounded select-none pointer-events-none uppercase tracking-wide"
     >Live</span>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { getImgUrl } from '~/lib/utils'
 
 const props = defineProps<{
-  photoUrl: string  // 原始相对 URL，比如 /upload/xxx.jpeg
-  videoUrl: string  // 原始相对 URL，比如 /upload/xxx.mov
+  photoUrl: string
+  videoUrl: string
   imgClass?: string
 }>()
 
-const videoEl = ref<HTMLVideoElement | null>(null)
-const posterUrl = computed(() => getImgUrl(props.photoUrl))
+const container = ref<HTMLElement | null>(null)
+let player: any = null
 
-let pressTimer: ReturnType<typeof setTimeout> | null = null
-const PRESS_DELAY_MS = 200 // 长按才播放，避免点击瞬间触发
+// LPK 偏好绝对 URL（它要 fetch 视频做处理），把相对 /upload/... 转绝对
+const toAbs = (u: string): string => {
+  if (!u) return u
+  const wrapped = getImgUrl(u)
+  if (typeof window === 'undefined') return wrapped
+  if (wrapped.startsWith('http')) return wrapped
+  return new URL(wrapped, window.location.origin).href
+}
+const photoSrcAbs = computed(() => toAbs(props.photoUrl))
+const videoSrcAbs = computed(() => toAbs(props.videoUrl))
 
-function startPlay() {
-  if (pressTimer) clearTimeout(pressTimer)
-  pressTimer = setTimeout(() => {
-    videoEl.value?.play().catch(() => {})
-  }, PRESS_DELAY_MS)
+// Apple 官方 LivePhotosKit JS：https://developer.apple.com/documentation/livephotoskitjs
+const LPK_SRC = 'https://cdn.apple-livephotoskit.com/lpk/1/livephotoskit.js'
+
+function loadLPK(): Promise<any> {
+  if (typeof window === 'undefined') return Promise.resolve(null)
+  const w = window as any
+  if (w.LivePhotosKit) return Promise.resolve(w.LivePhotosKit)
+  if (w.__lpkPromise) return w.__lpkPromise
+  w.__lpkPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script')
+    s.src = LPK_SRC
+    s.async = true
+    s.crossOrigin = 'anonymous'
+    s.onload = () => resolve(w.LivePhotosKit)
+    s.onerror = (e) => { w.__lpkPromise = null; reject(e) }
+    document.head.appendChild(s)
+  })
+  return w.__lpkPromise
 }
 
-function stopPlay() {
-  if (pressTimer) {
-    clearTimeout(pressTimer)
-    pressTimer = null
-  }
-  const v = videoEl.value
-  if (v && !v.paused) {
-    v.pause()
-    try { v.currentTime = 0 } catch {}
+async function mountPlayer() {
+  if (!container.value) return
+  try {
+    const LPK = await loadLPK()
+    if (!LPK || !container.value) return
+    // augmentElementAsPlayer 读 data-photo-src / data-video-src，把内部 DOM
+    // 替换成 LPK 自己的 canvas + video；外层 badge 在另一个 div 不会被动到
+    player = LPK.augmentElementAsPlayer(container.value)
+  } catch (e) {
+    console.warn('[LivePhoto] LPK load/augment failed, still image fallback remains visible:', e)
   }
 }
+
+onMounted(() => {
+  if (typeof IntersectionObserver === 'undefined') {
+    mountPlayer()
+    return
+  }
+  const io = new IntersectionObserver((entries) => {
+    if (entries[0]?.isIntersecting) {
+      io.disconnect()
+      mountPlayer()
+    }
+  }, { rootMargin: '400px' })
+  io.observe(container.value!)
+})
+
+onBeforeUnmount(() => {
+  try { player?.stop?.() } catch {}
+  player = null
+})
 </script>
 
 <style scoped>
-.live-photo-container > video {
+/* LPK augment 后会注入 canvas + video，让它们填满容器并保持图片比例 */
+.live-photo-inner :deep(canvas),
+.live-photo-inner :deep(video) {
+  width: 100% !important;
+  height: auto !important;
   display: block;
+}
+.live-photo-inner :deep(img) {
   width: 100%;
   height: auto;
-  /* 避免 video 没拉到时高度塌成 0 把 poster 也吞掉 */
-  background: #eee;
-  min-height: 60px;
+  display: block;
 }
 </style>
