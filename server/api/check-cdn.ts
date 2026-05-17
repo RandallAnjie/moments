@@ -1,35 +1,35 @@
-import { defineEventHandler } from 'h3';
-import axios from 'axios';
+// 探测站点前置 CDN。原实现用 axios + event.req（Node-only）在 Cloudflare Workers
+// 上跑不通——event.req 不存在，axios 内部也依赖 Node http/https。
+// 改成 fetch + getRequestURL（h3 跨平台 API）。
+
+import { defineEventHandler, getRequestURL } from 'h3'
 
 export default defineEventHandler(async (event) => {
-    const siteUrl = new URL(event.req.url, `http://${event.req.headers.host}`).origin;
+  const url = getRequestURL(event)
+  const siteUrl = `${url.protocol}//${url.host}`
 
-    try {
-        const response = await axios.head(siteUrl);
-        const headers = response.headers;
+  const cdnProviders: Record<string, string[]> = {
+    Cloudflare: ['cf-ray', 'cf-visitor'],
+    Akamai: ['x-akamai-transformed', 'akamai-x-cache-on'],
+    Fastly: ['fastly-client-ip', 'fastly-debug-digest'],
+    CloudFront: ['x-amz-cf-id', 'x-amz-cf-pop'],
+    EdgeCast: ['ec-range', 'edgecast'],
+    Tencent: ['s-tencent'],
+    Alibaba: ['ali-swift-global-savetime'],
+    Randall: ['x-randall-cdn'],
+  }
 
-        const cdnProviders = {
-            'Cloudflare': ['cf-ray', 'cf-visitor'],
-            'Akamai': ['x-akamai-transformed', 'akamai-x-cache-on'],
-            'Fastly': ['fastly-client-ip', 'fastly-debug-digest'],
-            'CloudFront': ['x-amz-cf-id', 'x-amz-cf-pop'],
-            'EdgeCast': ['ec-range', 'edgecast'],
-            'Tencent': ['s-tencent'],
-            'Alibaba': ['ali-swift-global-savetime'],
-            'Randall': ['x-randall-cdn'],
-        };
-
-        let detectedCDN = null;
-
-        for (const [cdn, keys] of Object.entries(cdnProviders)) {
-            if (keys.some(key => key in headers)) {
-                detectedCDN = cdn;
-                break;
-            }
-        }
-
-        return { isCDN: detectedCDN !== null, cdn: detectedCDN };
-    } catch (error: any) {
-        return { isCDN: false, error: error.message };
+  try {
+    const response = await fetch(siteUrl, { method: 'HEAD', redirect: 'follow' })
+    let detectedCDN: string | null = null
+    for (const [cdn, keys] of Object.entries(cdnProviders)) {
+      if (keys.some((k) => response.headers.has(k))) {
+        detectedCDN = cdn
+        break
+      }
     }
-});
+    return { isCDN: detectedCDN !== null, cdn: detectedCDN }
+  } catch (error: any) {
+    return { isCDN: false, error: error?.message ?? String(error) }
+  }
+})

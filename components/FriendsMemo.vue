@@ -188,15 +188,16 @@ const atpeoplenickname = ref('')
 
 let userId = ref(0)
 
-const isDetail = ref(false)
-
-if (window.location.pathname.startsWith('/detail/')) {
-  isDetail.value = true
-}else if(window.location.pathname.startsWith('/user/')) {
-  isDetail.value = true
-}else if(window.location.pathname.startsWith('/tags/')) {
-  isDetail.value = true
-}
+// 用 useRoute() 而不是 window.location.pathname —— 后者在 SSR 时被 unenv 用空对象
+// stub 掉了，server 渲染时 isDetail 永远是 false，hydrate 到客户端真实路径是
+// /detail/... 时翻成 true，DOM 跟着不一样就触发 "Hydration mismatch"。
+// useRoute 在 server 和 client 是同一份反应式路由状态。
+const _route = useRoute()
+const isDetail = computed(() =>
+  _route.path.startsWith('/detail/')
+  || _route.path.startsWith('/user/')
+  || _route.path.startsWith('/tags/'),
+)
 
 const gridStyle = computed(() => {
   let style = 'align-items: start;'; // 确保内容顶部对齐
