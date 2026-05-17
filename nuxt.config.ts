@@ -33,10 +33,33 @@ export default defineNuxtConfig({
       ],
     },
     workbox: {
-      navigateFallback: "/",
-      navigateFallbackDenylist: [/^\/api\//, /^\/upload\//],
-      globPatterns: ["**/*.{js,css,html,ico,png,svg,webp,woff,woff2}"],
+      // 新 SW 立刻接管 + 释放旧 client，避免老页面拿着旧 SW 去 fetch 已经
+      // 不存在的旧 asset hash（bad-precaching-response: ... 404）
+      skipWaiting: true,
+      clientsClaim: true,
+      // 把上一版本遗留的 precache 缓存清掉
+      cleanupOutdatedCaches: true,
+      // 不再 precache HTML，也不再设 navigateFallback —— SSR 站点的 "/" 没有
+      // 静态文件，workbox 之前在 createHandlerBoundToURL("/") 上炸 non-precached-url。
+      // 导航请求走下面 runtimeCaching 里的 NetworkFirst（在线优先，离线兜底）
+      globPatterns: ["**/*.{js,css,ico,png,svg,webp,woff,woff2}"],
+      // 预缓存清单里出现 404 时（部署交错期）容忍而不是整体失败
+      navigateFallback: null,
       runtimeCaching: [
+        // SSR 页面：在线优先，无网络就回缓存
+        {
+          urlPattern: ({ request, sameOrigin, url }) =>
+            sameOrigin && request.mode === 'navigate'
+            && !url.pathname.startsWith('/api/')
+            && !url.pathname.startsWith('/upload/'),
+          handler: "NetworkFirst",
+          options: {
+            cacheName: "pages-cache",
+            networkTimeoutSeconds: 5,
+            expiration: { maxEntries: 30, maxAgeSeconds: 60 * 60 * 24 * 7 },
+            cacheableResponse: { statuses: [200] },
+          },
+        },
         {
           urlPattern: ({ url }) => url.pathname.startsWith("/upload/"),
           handler: "StaleWhileRevalidate",
