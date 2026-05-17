@@ -7,9 +7,15 @@
         <div class="username text-[#576b95] cursor-default mb-1 dark:text-white" @click="gotouser">{{ props.memo.user.nickname }}</div>
         <Pin :size=14 v-if="props.memo.pinned && props.memo.userId == 1" />
       </div>
-      <div :id="'content-' + props.memo.id" class="memo-content text-sm friend-md words-container" ref="el" v-html="replaceNewLinesExceptInCodeBlocks(props.memo.content)"> </div>
-      <div class="text-[#576b95] cursor-pointer" v-if="hh > 96 && !showAll" @click="showMore">全文</div>
-      <div class="text-[#576b95] cursor-pointer " v-if="showAll" @click="showLess">收起</div>
+      <div
+        :id="'content-' + props.memo.id"
+        class="memo-content text-sm friend-md words-container"
+        :class="{ 'line-clamp-4': !showAll }"
+        ref="el"
+        v-html="replaceNewLinesExceptInCodeBlocks(props.memo.content)"
+      ></div>
+      <div class="text-[#576b95] cursor-pointer" v-if="isOverflowing && !showAll" @click="showAll = true">全文</div>
+      <div class="text-[#576b95] cursor-pointer" v-if="isOverflowing && showAll" @click="showAll = false">收起</div>
       <div class="flex flex-row gap-2 my-2 bg-[#f7f7f7] dark:bg-[#212121] items-center p-2 border rounded"
         v-if="props.memo.externalFavicon && props.memo.externalTitle">
         <img class="w-8 h-8" :src="props.memo.externalFavicon" alt="">
@@ -291,19 +297,17 @@ const showCommentInput = ref(false)
 const toolbarRef = ref(null)
 const showUserCommentArray = ref<Array<boolean>>([])
 const el = ref<any>(null)
-let hh = ref(0)
+// 内容是否超过 4 行被截断了；仅当 true 时才显示「全文 / 收起」
+const isOverflowing = ref(false)
 const likeList = useStorage<Array<number>>('likeList', [])
 
-const measureAndClamp = () => {
+// 当 line-clamp-4 已通过 :class 绑定生效时，scrollHeight 是自然全高、
+// clientHeight 是被截断后的可视高度；差值就是是否溢出。
+// `+1` 容差是为了避开 sub-pixel rounding 误判。
+const checkOverflow = () => {
   if (!el.value) return
-  // 测量真实内容高度时不能带 line-clamp,否则 scrollHeight 会被截断
-  const hadClamp = el.value.classList.contains('line-clamp-4')
-  if (hadClamp) el.value.classList.remove('line-clamp-4')
-  const fullHeight = el.value.scrollHeight
-  hh.value = fullHeight
-  if (fullHeight > 96 && !showAll.value) {
-    el.value.classList.add('line-clamp-4')
-  }
+  if (showAll.value) return // 展开状态下不重判，避免「收起」消失
+  isOverflowing.value = el.value.scrollHeight > el.value.clientHeight + 1
 }
 
 onClickOutside(toolbarRef, () => {
@@ -331,27 +335,22 @@ onMounted(async () => {
 
   await nextTick()
 
-  // 父级 .memo-row 用了 content-visibility: auto，视口外元素 scrollHeight 会是 0；
-  // 用 IntersectionObserver 等它真正可见时再测量，避免「全文」按钮在长文上不出现
-  const runMeasure = () => {
-    if (!el.value) return
-    if (el.value.scrollHeight > 0) {
-      measureAndClamp()
-      const innerImgs = el.value.querySelectorAll('img')
-      innerImgs.forEach((img: HTMLImageElement) => {
-        if (!img.complete) {
-          img.addEventListener('load', () => {
-            if (!showAll.value) measureAndClamp()
-          }, { once: true })
-        }
-      })
-      return true
-    }
-    return false
+  // 父级 .memo-row 用了 content-visibility: auto，视口外元素 scrollHeight/clientHeight
+  // 都会是 0；用 IntersectionObserver 等它真正可见时再判断溢出，避免「全文」按钮在长文上不出现。
+  const runCheck = () => {
+    if (!el.value || el.value.clientHeight === 0) return false
+    checkOverflow()
+    const innerImgs = el.value.querySelectorAll('img')
+    innerImgs.forEach((img: HTMLImageElement) => {
+      if (!img.complete) {
+        img.addEventListener('load', checkOverflow, { once: true })
+      }
+    })
+    return true
   }
-  if (!runMeasure()) {
+  if (!runCheck()) {
     const measureObserver = new IntersectionObserver((entries) => {
-      if (entries[0]?.isIntersecting && runMeasure()) {
+      if (entries[0]?.isIntersecting && runCheck()) {
         measureObserver.disconnect()
       }
     }, { rootMargin: '200px' })
@@ -359,13 +358,13 @@ onMounted(async () => {
   }
 })
 
-// 翻译切换 / 编辑后内容会变,需要重测高度
+// 翻译切换 / 编辑后内容会变,需要重测溢出
 watch(() => props.memo.content, async () => {
   if (!el.value) return
   showAll.value = false
-  el.value.classList.remove('line-clamp-4')
+  isOverflowing.value = false
   await nextTick()
-  measureAndClamp()
+  checkOverflow()
 })
 
 const gridCols = computed(() => {
@@ -518,14 +517,8 @@ const refreshComment = async () => {
 }
 
 
-const showMore = () => {
-  showAll.value = true
-  el.value.classList.remove('line-clamp-4')
-}
-const showLess = () => {
-  showAll.value = false
-  el.value.classList.add('line-clamp-4')
-}
+// showAll 直接通过 :class 绑定 line-clamp-4 反应式控制，无需额外的 showMore/showLess
+// 函数；click handler 直接 `@click="showAll = true/false"`。
 
 const colorMode = useColorMode()
 
