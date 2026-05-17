@@ -62,45 +62,37 @@ export default defineEventHandler(async (event) => {
   // which matches every non-null content row — preserve that semantic).
   const contentFilter = like(memos.content, `%${needle}%`)
 
+  // +1 trick：多取 1 条来判断 hasNext，省掉单独的 COUNT(*) 查询
+  const fetchLimit = size + 1
   let rawMemos: typeof memos.$inferSelect[] = []
+  let hasNext = false
 
   if (userIdFilter !== undefined) {
-    rawMemos = await db
+    const rows = await db
       .select()
       .from(memos)
       .where(and(eq(memos.userId, userIdFilter), availableFilter))
       .orderBy(desc(memos.pinned), desc(memos.createdAt))
-      .limit(size)
+      .limit(fetchLimit)
       .offset((page - 1) * size)
+    hasNext = rows.length > size
+    rawMemos = rows.slice(0, size)
   } else {
-    // data1: admin (userId=1) pinned memos with content filter + availability
-    const data1 = await db
+    // 用单条 SQL 直接实现 "admin pinned 在前 + 其它按 createdAt 倒序"：
+    //   ORDER BY (userId=1 AND pinned=1) DESC, createdAt DESC
+    // 旧实现拉全表 pinned + 全表非 pinned 再 JS slice，N 越大越浪费。现在按需 LIMIT。
+    const rows = await db
       .select()
       .from(memos)
-      .where(
-        and(
-          eq(memos.userId, 1),
-          eq(memos.pinned, true),
-          contentFilter,
-          availableFilter,
-        ),
+      .where(and(contentFilter, availableFilter))
+      .orderBy(
+        sql`(CASE WHEN ${memos.userId} = 1 AND ${memos.pinned} = 1 THEN 0 ELSE 1 END) ASC`,
+        desc(memos.createdAt),
       )
-      .orderBy(desc(memos.createdAt))
-
-    // data2: everything that is NOT (admin AND pinned), same content filter + availability
-    const data2 = await db
-      .select()
-      .from(memos)
-      .where(
-        and(
-          not(and(eq(memos.userId, 1), eq(memos.pinned, true))!),
-          contentFilter,
-          availableFilter,
-        ),
-      )
-      .orderBy(desc(memos.createdAt))
-
-    rawMemos = data1.concat(data2).slice((page - 1) * size, page * size)
+      .limit(fetchLimit)
+      .offset((page - 1) * size)
+    hasNext = rows.length > size
+    rawMemos = rows.slice(0, size)
   }
 
   // Hydrate users + comments in batch, then assemble the legacy response shape.
@@ -132,37 +124,29 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  // Per-memo comment counts (the legacy `_count.comments`).
+  // Per-memo comment 计数 + 每 memo 取前 6 条（hasMoreComments = total > 5）
+  // 用一条带 ROW_NUMBER 窗口函数的 SQL 只读必要的行，避免评论多的 memo 全表扫描
   const commentCountByMemo = new Map<number, number>()
-  if (memoIds.length > 0) {
-    const countRows = await db
-      .select({
-        memoId: comments.memoId,
-        cnt: sql<number>`count(*)`.as('cnt'),
-      })
-      .from(comments)
-      .where(inArray(comments.memoId, memoIds))
-      .groupBy(comments.memoId)
-    for (const r of countRows) {
-      commentCountByMemo.set(r.memoId, Number(r.cnt) || 0)
-    }
-  }
-
-  // Per-memo first-6 comments (take:5+1 in the legacy; the +1 is used to
-  // signal hasMoreComments without a separate count).
   const commentsByMemo = new Map<number, typeof comments.$inferSelect[]>()
   if (memoIds.length > 0) {
-    const allComments = await db
-      .select()
-      .from(comments)
-      .where(inArray(comments.memoId, memoIds))
-      .orderBy(asc(comments.createdAt))
-    for (const c of allComments) {
-      const arr = commentsByMemo.get(c.memoId) ?? []
-      if (arr.length < 6) {
-        arr.push(c)
-        commentsByMemo.set(c.memoId, arr)
+    // 取出每条评论 + 其在所属 memo 内的排序号 + 该 memo 评论总数
+    const rows = await db.all<any>(sql`
+      WITH ranked AS (
+        SELECT *,
+               ROW_NUMBER() OVER (PARTITION BY memoId ORDER BY createdAt ASC) AS rn,
+               COUNT(*)     OVER (PARTITION BY memoId)                        AS total
+        FROM Comment
+        WHERE memoId IN (${sql.join(memoIds, sql`, `)})
+      )
+      SELECT * FROM ranked WHERE rn <= 6
+    `)
+    for (const c of rows as any[]) {
+      if (!commentCountByMemo.has(c.memoId)) {
+        commentCountByMemo.set(c.memoId, Number(c.total) || 0)
       }
+      const arr = commentsByMemo.get(c.memoId) ?? []
+      arr.push(c)
+      commentsByMemo.set(c.memoId, arr)
     }
   }
 
@@ -265,23 +249,11 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  // Total count for pagination. When a user filter is active the count is
-  // scoped to that user; otherwise it spans every memo matching the filters.
-  const totalWhere = userIdFilter !== undefined
-    ? and(eq(memos.userId, userIdFilter), contentFilter, availableFilter)
-    : and(contentFilter, availableFilter)
-
-  const totalRows = await db
-    .select({ value: sql<number>`count(*)` })
-    .from(memos)
-    .where(totalWhere)
-  const total = Number(totalRows[0]?.value ?? 0)
-  const totalPage = Math.ceil(total / size)
-
+  // hasNext 来自上面 +1 trick，无需再发 COUNT(*) 查询
   return {
     data,
     referencedUsers,
-    hasNext: page < totalPage,
+    hasNext,
     success: true,
   }
 })
