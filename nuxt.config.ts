@@ -96,7 +96,9 @@ export default defineNuxtConfig({
         (process.env.CF_IMAGE_TRANSFORM || '').toLowerCase(),
       ),
       // Web Push VAPID 公钥（浏览器订阅时需要）。私钥/subject 在 server 端用
-      vapidPublicKey: process.env.VAPID_PUBLIC_KEY || '',
+      // 默认值跟 wrangler.toml [vars] 同步：build 时 process.env 取不到，避免 baked 成空串
+      vapidPublicKey: process.env.VAPID_PUBLIC_KEY
+        || 'BBWjYp1l-pjKkNcjNghpQb5B7DmwtnOhLsCbBERCUbzSI40D5CouDewrIg5sWTpXb1ClbJBCNE_VZmxof395Ch8',
       // R2 公网 URL —— 浏览器直接拉，绕过 Worker 节省请求；
       // 默认值跟 wrangler.toml [vars] 同步，避免 build 时 process.env 没传导致 baked ''
       r2PublicBaseUrl: (process.env.R2_PUBLIC_BASE_URL || 'https://pub-536ff76c3cb44477bf90094fa45646ee.r2.dev').replace(/\/+$/, ''),
