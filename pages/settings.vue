@@ -203,6 +203,10 @@ const saveSettings = async () => {
         success: (data) => {
           if(data.success){
             state.password = ''
+            // 让 SPA 级 site-settings 缓存失效，下一次读取会重拉新值（customWeather /
+            // customLocation / timeFrontend 等都是从这里读的）。
+            // 配合 location.reload() 是冗余的，但 reload 一旦未来被移除就靠它兜底。
+            useSiteSettings().invalidate()
             settingsUpdateEvent.emit()
             if (state.password) {
               token.value = ''

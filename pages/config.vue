@@ -500,7 +500,9 @@ const saveConfig = async () => {
   if (success) {
     enableS3.value = state.enableS3
     toast.success('保存成功')
-      location.reload()
+    // SPA 级 site-settings 缓存失效，下次读取重新拉。reload 在此之后仍然冗余兜底。
+    useSiteSettings().invalidate()
+    location.reload()
     settingsUpdateEvent.emit()
   }
 }
