@@ -30,12 +30,22 @@
             ref="myFancyBox"
             :options="{ Carousel: { infinite: false } }"
         >
-          <img
+          <template v-for="(img, index) in imgs" :key="index">
+            <!-- Live Photo: imgs 中以 "still|video" 形式编码，长按播放 -->
+            <ClientOnly v-if="isLivePhoto(img)">
+              <LivePhoto
+                :photo-url="parseLivePhoto(img).still"
+                :video-url="parseLivePhoto(img).video"
+                :img-class="imgs.length === 1 ? 'cursor-pointer rounded full-cover-image-single' : 'rounded cursor-grab full-cover-image-mult'"
+              />
+            </ClientOnly>
+            <img
+              v-else
               loading="lazy"
               :class="imgs.length === 1 ? 'cursor-pointer rounded full-cover-image-single' : ' rounded cursor-grab full-cover-image-mult'"
               v-lazy="getImgUrl(img)"
-              v-for="(img, index) in imgs" :key="index"
-          />
+            />
+          </template>
         </FancyBox>
       </div>
       <div
@@ -161,6 +171,14 @@ import 'dayjs/locale/zh-cn';
 import { Heart, HeartCrack, MessageSquareMore, Trash2, FilePenLine, Pin, Info, Share, Languages } from 'lucide-vue-next'
 import { memoUpdateEvent, memoAddEvent, headigUpdateEvent, memoDeleteEvent} from '@/lib/event'
 import { getImgUrl } from '~/lib/utils';
+import LivePhoto from '~/components/LivePhoto.vue';
+
+// "still|video" 编码识别（详见 useUpload + uploadImgs Live Photo 配对逻辑）
+const isLivePhoto = (entry: string) => entry.includes('|');
+const parseLivePhoto = (entry: string) => {
+  const [still, video] = entry.split('|');
+  return { still, video };
+};
 import {
   AlertDialog,
   AlertDialogAction,

@@ -80,7 +80,7 @@
             </Tooltip>
           </TooltipProvider>
 
-          <input type="file" id="imgUpload" class="hidden" name="file" @change="uploadImgs">
+          <input type="file" id="imgUpload" class="hidden" name="file" multiple accept="image/*,video/quicktime,video/mp4,.mov" @change="uploadImgs">
         </Label>
 
       </div>
@@ -610,20 +610,58 @@ const pasteImg = async (event: ClipboardEvent) => {
   })
 }
 
+// Live Photo：iOS 把动态照片导出为同名的 <basename>.HEIC + <basename>.MOV 一对，
+// 用户在文件选择器多选两个文件时按基名配对，存为 imgs 中的 "still|video" 一项。
+// 单独的图片/视频按原逻辑各自一项。
+const baseName = (n: string) => n.replace(/\.[^.]+$/, '')
+const isImageFile = (f: File) => f.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp|heic|heif|tiff?)$/i.test(f.name)
+const isVideoFile = (f: File) => f.type.startsWith('video/') || /\.(mov|mp4|m4v)$/i.test(f.name)
+
 const uploadImgs = async (event: Event) => {
-  const file = (event.target as HTMLInputElement).files?.[0]
-  if (!file) {
-    return
+  const inputEl = event.target as HTMLInputElement
+  const files = Array.from(inputEl.files || [])
+  if (files.length === 0) return
+
+  // 按基名分组找 Live Photo 配对（同基名 + 一个 image + 一个 video）
+  const groups = new Map<string, { still?: File; video?: File; extras: File[] }>()
+  for (const f of files) {
+    const k = baseName(f.name) || f.name
+    const g = groups.get(k) || { extras: [] }
+    if (isImageFile(f) && !g.still) g.still = f
+    else if (isVideoFile(f) && !g.video) g.video = f
+    else g.extras.push(f)
+    groups.set(k, g)
   }
 
-  await useUpload(file, async (res) => {
-    if (res.success) {
-      (event.target as HTMLInputElement).value = ''
-      imgs.value = [...imgs.value, res.filename]
-    } else {
-      toast.warning('上传失败' + res.message)
+  for (const g of groups.values()) {
+    if (g.still && g.video) {
+      // Live Photo pair: 上传两个，合并成 "still|video" 一项
+      let stillUrl = '', videoUrl = ''
+      await useUpload(g.still, async (res) => {
+        if (res.success) stillUrl = res.filename
+        else toast.warning('上传失败' + res.message)
+      })
+      await useUpload(g.video, async (res) => {
+        if (res.success) videoUrl = res.filename
+        else toast.warning('上传失败' + res.message)
+      })
+      if (stillUrl && videoUrl) {
+        imgs.value = [...imgs.value, `${stillUrl}|${videoUrl}`]
+        toast.success('Live Photo 已添加')
+      }
+      continue
     }
-  })
+    // 落单文件按原逻辑各自上传一项
+    const lone = [g.still, g.video, ...g.extras].filter(Boolean) as File[]
+    for (const f of lone) {
+      await useUpload(f, async (res) => {
+        if (res.success) imgs.value = [...imgs.value, res.filename]
+        else toast.warning('上传失败' + res.message)
+      })
+    }
+  }
+
+  inputEl.value = ''
 }
 
 memoUpdateEvent.on((event: Memo) => {

@@ -13,10 +13,15 @@ export default defineEventHandler(async (event) => {
     }
   }
   const file = formData[0] as FileInfo
-  if (!file?.type || !file.type.startsWith('image/')) {
+  // 允许 image/*（普通照片）和 video/quicktime + video/mp4（Live Photo 配套视频）
+  const isImage = file?.type?.startsWith('image/')
+  const isVideo = file?.type === 'video/quicktime'
+    || file?.type === 'video/mp4'
+    || /\.(mov|mp4|m4v)$/i.test(file?.filename || file?.name || '')
+  if (!isImage && !isVideo) {
     return {
       success: false,
-      message: '只支持上传图片文件',
+      message: '只支持上传图片或视频文件',
       filename: '',
     }
   }
@@ -30,13 +35,16 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  const filetype = file.type.split('/')[1] || 'bin'
+  // 文件扩展名优先取上传文件名（保留 .mov/.heic 等），fallback 用 MIME
+  const nameForExt = file?.filename || file?.name || ''
+  const extFromName = nameForExt.includes('.') ? nameForExt.split('.').pop()!.toLowerCase() : ''
+  const filetype = extFromName || (file?.type?.split('/')[1] || 'bin')
   const filename = short.generate()
   const key = `${filename}.${filetype}`
 
   try {
     await uploads.put(key, file.data, {
-      httpMetadata: { contentType: file.type },
+      httpMetadata: { contentType: file.type || 'application/octet-stream' },
     })
   } catch (e) {
     console.log('R2 put error:', e)

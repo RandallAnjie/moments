@@ -46,8 +46,13 @@ export const useUpload = async (file: File, cb: UploadCallBack) => {
   // 先尝试把 HEIC/HEIF 转 JPEG（非 HEIC 直接原文件返回，开销 ≈ 0）
   const finalFile = await maybeConvertHeic(file);
 
-  if (!finalFile.type.startsWith('image')) {
-    toast.error('只支持上传图片文件');
+  // 接受图片，以及 Live Photo 配套的 .mov/.mp4 视频
+  const isImg = finalFile.type.startsWith('image');
+  const isVideo =
+    finalFile.type.startsWith('video') ||
+    /\.(mov|mp4|m4v)$/i.test(finalFile.name);
+  if (!isImg && !isVideo) {
+    toast.error('只支持上传图片或视频文件');
     return;
   }
 
