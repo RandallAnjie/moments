@@ -338,11 +338,12 @@ onMounted(async () => {
       })
     }
   })
-  await $fetch('/api/user/settings/get').then((res) => {
-    if (res.success) {
-      timeFrontend.value = res.data.timeFrontend
-    }
-  })
+  // 站点设置在 SPA 内不会变 —— 用共享缓存，整个会话只发一次请求
+  // （之前每个 FriendsMemo onMounted 都拉一次，列表里 10 条 memo 就是 10 次重复请求）
+  const siteSettings = await useSiteSettings().fetchSettings()
+  if (siteSettings?.success) {
+    timeFrontend.value = siteSettings.data.timeFrontend
+  }
 
   await nextTick()
 

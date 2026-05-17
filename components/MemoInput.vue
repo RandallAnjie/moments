@@ -688,11 +688,11 @@ memoUpdateEvent.on((event: Memo) => {
 })
 const showLocationInput = ref(false)
 onMounted(async () => {
-  await $fetch('/api/user/settings/get').then((res) => {
-    if (res.success) {
-      showLocationInput.value = (res.data.customLocation == "1")
-    }
-  })
+  // 走 SPA 级缓存，整个会话只发一次（跟 FriendsMemo / HeaderImg 共用）
+  const settings = await useSiteSettings().fetchSettings()
+  if (settings?.success) {
+    showLocationInput.value = (settings.data.customLocation == "1")
+  }
 })
 
 const getTmpLocation = async () => {

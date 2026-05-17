@@ -131,13 +131,13 @@ onMounted(async () => {
   }
 
   if (showWeatherCache.value === null) {
-    await $fetch('/api/user/settings/get').then((res) => {
-      if (res.success) {
-        const v = (res.data.customWeather == "1");
-        shwoWeather.value = v;
-        showWeatherCache.value = v;
-      }
-    })
+    // 走 SPA 级缓存，跟 FriendsMemo 共用同一次 /api/user/settings/get 响应
+    const settings = await useSiteSettings().fetchSettings()
+    if (settings?.success) {
+      const v = (settings.data.customWeather == "1");
+      shwoWeather.value = v;
+      showWeatherCache.value = v;
+    }
   } else {
     shwoWeather.value = showWeatherCache.value;
   }
