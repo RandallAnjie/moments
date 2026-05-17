@@ -32,7 +32,6 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
-import { getImgUrl } from '~/lib/utils'
 
 const props = defineProps<{
   photoUrl: string
@@ -47,12 +46,15 @@ let player: any = null
 
 const outerStyle = computed(() => ({ aspectRatio: aspect.value }))
 
+// LPK 用 XHR 取还原（不是 <img>），如果走 R2 公网 URL 就被 CORS 卡。
+// 这里 *不调* getImgUrl —— 不走 R2 重写，仍然用 /upload/<file> 的 Worker 路由，
+// 这个跟当前页同源 (moments.randallanjie.com)，XHR 无 CORS 限制。
+// 代价是每张 Live Photo 多一次 Worker 命中 + R2 binding read，但 Live Photo 量远小于普通图。
 const toAbs = (u: string): string => {
   if (!u) return u
-  const wrapped = getImgUrl(u)
-  if (typeof window === 'undefined') return wrapped
-  if (wrapped.startsWith('http')) return wrapped
-  return new URL(wrapped, window.location.origin).href
+  if (typeof window === 'undefined') return u
+  if (u.startsWith('http')) return u
+  return new URL(u, window.location.origin).href
 }
 const photoSrcAbs = computed(() => toAbs(props.photoUrl))
 const videoSrcAbs = computed(() => toAbs(props.videoUrl))
