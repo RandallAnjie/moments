@@ -10,7 +10,7 @@
       <div
         :id="'content-' + props.memo.id"
         class="memo-content text-sm friend-md words-container"
-        :class="{ 'line-clamp-4': !showAll }"
+        :class="{ 'memo-clamp': !showAll }"
         ref="el"
         v-html="replaceNewLinesExceptInCodeBlocks(props.memo.content)"
       ></div>
@@ -776,6 +776,16 @@ pre code {
 
 .aplayer-lrc {
   margin-top: 25px !important;
+}
+
+/* 自定义 4 行截断 —— 不依赖 Tailwind 的 line-clamp utility（@nuxtjs/tailwindcss
+   在这个项目里没把它生成进 CSS，所以直接写死） */
+.memo-clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  overflow: hidden;
 }
 
 </style>
