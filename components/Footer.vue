@@ -113,17 +113,10 @@ const colorMode = useColorMode()
 
 const beian = response.data.beianNo
 
-onMounted(async () => {
-  try {
-    const response = await fetch('/api/check-cdn');
-    const data = await response.json();
-    if (data.isCDN) {
-      document.getElementById('cdn-div').style.display = 'flex';
-      document.getElementById(data.cdn).style.display = 'flex';
-    }
-  } catch (error) {
-    console.error('Error checking Cloudflare:', error);
-  }
+onMounted(() => {
+  // 站点固定部署在 Cloudflare Pages —— 直接写死，省掉一次 /api/check-cdn 请求
+  document.getElementById('cdn-div')?.style.setProperty('display', 'flex');
+  document.getElementById('Cloudflare')?.style.setProperty('display', 'flex');
 });
 
 </script>
