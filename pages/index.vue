@@ -26,6 +26,7 @@
       <div
         v-for="(memo, idx) in state.memoList"
         :key="memo.id ?? idx"
+        :data-memo-id="memo.id"
         class="memo-row border-b border-[#C0BEBF]/10 dark:border-[#2d2d2d]"
       >
         <FriendsMemo
@@ -79,11 +80,35 @@ const loadMoreSentinel = ref<HTMLElement | null>(null);
 let intersectionObserver: IntersectionObserver | null = null;
 
 let scrollSaveTimer: ReturnType<typeof setTimeout> | null = null;
+const saveAnchor = () => {
+  // 找视口顶部最近、bottom 还在视口里的 memo（即 "topmost 可见 memo"）
+  const rows = document.querySelectorAll<HTMLElement>('.memo-row[data-memo-id]');
+  for (const el of rows) {
+    const rect = el.getBoundingClientRect();
+    if (rect.bottom > 0) {
+      const id = parseInt(el.dataset.memoId ?? '0', 10);
+      if (id) {
+        timelineStore.setAnchor(id, rect.top);
+        return;
+      }
+    }
+  }
+  // 顶部以上全是 memo（不太可能）或者列表为空 — 清掉锚点
+  timelineStore.setAnchor(null, 0);
+};
 const handleScroll = () => {
   if (scrollSaveTimer) clearTimeout(scrollSaveTimer);
-  scrollSaveTimer = setTimeout(() => {
-    timelineStore.setScrollTop(window.scrollY);
-  }, 150);
+  scrollSaveTimer = setTimeout(saveAnchor, 150);
+};
+const restoreAnchor = () => {
+  if (timelineStore.anchorId == null) return;
+  const el = document.querySelector<HTMLElement>(`.memo-row[data-memo-id="${timelineStore.anchorId}"]`);
+  if (!el) return;
+  el.scrollIntoView({ block: 'start', behavior: 'instant' as ScrollBehavior });
+  // anchorOffset 是 anchor memo 距视口顶部的偏移，正/负皆可：
+  //   正 = anchor 在视口下方一点点（用户滚到了一半进入下一个 memo 前）
+  //   负 = anchor 顶部已经被滚到视口上方
+  window.scrollBy(0, -timelineStore.anchorOffset);
 };
 
 // 哨兵 v-if="state.hasNext" 控制挂载/卸载；用 watch 跟随 ref 变化，避免在
@@ -108,9 +133,11 @@ onMounted(async () => {
     state.memoList = [...timelineStore.memoList];
     state.page = timelineStore.page;
     state.hasNext = timelineStore.hasNext;
-    const savedScrollTop = timelineStore.scrollTop;
     await nextTick();
-    window.scrollTo(0, savedScrollTop);
+    restoreAnchor();
+    // 内容渲染需要一两帧，再补一次保险（图片回填高度后位置会变）
+    requestAnimationFrame(() => restoreAnchor());
+    setTimeout(restoreAnchor, 150);
   } else {
     firstLoad();
     welcome();
@@ -120,7 +147,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   if (typeof window !== 'undefined') {
-    timelineStore.setScrollTop(window.scrollY);
+    saveAnchor();
     window.removeEventListener('scroll', handleScroll);
     if (intersectionObserver) intersectionObserver.disconnect();
     if (scrollSaveTimer) clearTimeout(scrollSaveTimer);
@@ -144,7 +171,7 @@ const firstLoad = async () => {
           page: state.page,
           hasNext: state.hasNext,
         });
-        timelineStore.setScrollTop(0);
+        timelineStore.setAnchor(null, 0);
         return '加载成功';
       } else {
         return '加载失败: ' + data.message;

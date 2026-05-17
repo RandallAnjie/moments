@@ -5,7 +5,11 @@ interface TimelineState {
     memoList: Memo[];
     page: number;
     hasNext: boolean;
-    scrollTop: number;
+    // 锚点恢复：返回首页时把视口顶部最近的那个 memo（anchorId）滚回来，
+    // 不再用 scrollTop 像素 —— content-visibility: auto 下视口外用 320px 占位估算，
+    // 真实高度有偏差，按 scrollTop 落点会偏到别的 memo 上。
+    anchorId: number | null;
+    anchorOffset: number; // anchor memo 距视口顶部的偏移
     hasCache: boolean;
 }
 
@@ -14,7 +18,8 @@ export const useTimelineStore = defineStore('timeline', {
         memoList: [],
         page: 1,
         hasNext: false,
-        scrollTop: 0,
+        anchorId: null,
+        anchorOffset: 0,
         hasCache: false,
     }),
     actions: {
@@ -24,14 +29,16 @@ export const useTimelineStore = defineStore('timeline', {
             this.hasNext = payload.hasNext;
             this.hasCache = true;
         },
-        setScrollTop(scrollTop: number) {
-            this.scrollTop = scrollTop;
+        setAnchor(anchorId: number | null, anchorOffset: number) {
+            this.anchorId = anchorId;
+            this.anchorOffset = anchorOffset;
         },
         clear() {
             this.memoList = [];
             this.page = 1;
             this.hasNext = false;
-            this.scrollTop = 0;
+            this.anchorId = null;
+            this.anchorOffset = 0;
             this.hasCache = false;
         },
     },
