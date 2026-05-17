@@ -71,12 +71,18 @@
       <div class="text-[#576b95] font-medium dark:text-white text-xs mt-1 mb-1 select-none">{{props.memo.location?.split(/\s+/g).join(' · ')}}</div>
       <div class="toolbar relative flex flex-row justify-between select-none my-1">
         <div class="flex-1 text-gray text-xs text-[#9DA4B0] ">{{ timeFormateFunction(props.memo.createdAt) }}</div>
-        <div @click="showToolbar = !showToolbar"
+        <div @click="toggleToolbar"
+          ref="dotIconRef"
           class="toolbar-icon mb-2 px-2 py-1 bg-[#f7f7f7] dark:bg-slate-700 hover:bg-[#dedede] cursor-pointer rounded flex items-center justify-center">
           <img src="~/assets/img/dian.svg" class="w-3 h-3" />
         </div>
-        <div class="text-xs absolute top-[-8px] right-[30px] bg-[#4c4c4c] rounded text-white p-1 min-w-[110px] z-10" v-if="showToolbar"
-          ref="toolbarRef">
+        <!-- Teleport 到 body 之外：父级 .memo-row 有 content-visibility:auto，
+             隐式 contain:paint 会裁掉超出 memo 范围的子元素。
+             用 fixed 定位+实时算坐标避免裁切。 -->
+        <Teleport to="body">
+          <div class="text-xs bg-[#4c4c4c] rounded text-white p-1 min-w-[110px]" v-if="showToolbar"
+            ref="toolbarRef"
+            :style="toolbarStyle">
           <div class="flex flex-col gap-0.5">
             <div class="flex flex-row gap-2 cursor-pointer items-center whitespace-nowrap px-2 py-1.5 rounded hover:bg-[#5c5c5c] w-full" v-if="token && userId === props.memo.userId && (!isDetail)"
               @click="pinned(); showToolbar = false">
@@ -140,6 +146,7 @@
             </div>
           </div>
         </div>
+        </Teleport>
       </div>
       <div class="rounded bottom-shadow bg-[#f7f7f7] dark:bg-[#202020] flex flex-col gap-1  ">
         <div class="flex flex-row py-2 px-4 gap-2 items-center text-sm" v-if="props.memo.favCount > 0">
@@ -323,7 +330,9 @@ const emit = defineEmits(['memo-update'])
 const showAll = ref(false)
 const showToolbar = ref(false)
 const showCommentInput = ref(false)
-const toolbarRef = ref(null)
+const toolbarRef = ref<HTMLElement | null>(null)
+const dotIconRef = ref<HTMLElement | null>(null)
+const toolbarStyle = ref<Record<string, string>>({ position: 'fixed', visibility: 'hidden' })
 const showUserCommentArray = ref<Array<boolean>>([])
 const el = ref<any>(null)
 // 内容是否超过 4 行被截断了；仅当 true 时才显示「全文 / 收起」
@@ -339,8 +348,51 @@ const checkOverflow = () => {
   isOverflowing.value = el.value.scrollHeight > el.value.clientHeight + 1
 }
 
-onClickOutside(toolbarRef, () => {
+onClickOutside(toolbarRef, (e) => {
+  // 点 dot 图标本身要走 toggleToolbar，不被 outside-click 二次关掉
+  if (dotIconRef.value && e.target && dotIconRef.value.contains(e.target as Node)) return
   showToolbar.value = false
+})
+
+// popup 用 Teleport 渲到 body，要按 dot 图标的视口坐标 fixed 定位
+function computeToolbarStyle() {
+  const dot = dotIconRef.value
+  if (!dot) return
+  const r = dot.getBoundingClientRect()
+  toolbarStyle.value = {
+    position: 'fixed',
+    bottom: `${Math.max(8, window.innerHeight - r.top + 6)}px`,
+    right: `${Math.max(8, window.innerWidth - r.right + 30)}px`,
+    zIndex: '50',
+    visibility: 'visible',
+  }
+}
+
+function toggleToolbar() {
+  if (showToolbar.value) {
+    showToolbar.value = false
+    return
+  }
+  computeToolbarStyle()
+  showToolbar.value = true
+}
+
+// 打开 popup 期间滚动 / 改窗口大小，重算位置
+let toolbarScrollHandler: (() => void) | null = null
+let toolbarResizeHandler: (() => void) | null = null
+watch(showToolbar, (v) => {
+  if (typeof window === 'undefined') return
+  if (v) {
+    toolbarScrollHandler = () => computeToolbarStyle()
+    toolbarResizeHandler = () => computeToolbarStyle()
+    window.addEventListener('scroll', toolbarScrollHandler, { passive: true, capture: true })
+    window.addEventListener('resize', toolbarResizeHandler, { passive: true })
+  } else {
+    if (toolbarScrollHandler) window.removeEventListener('scroll', toolbarScrollHandler, { capture: true } as any)
+    if (toolbarResizeHandler) window.removeEventListener('resize', toolbarResizeHandler)
+    toolbarScrollHandler = null
+    toolbarResizeHandler = null
+  }
 })
 
 const timeFrontend = ref('')
