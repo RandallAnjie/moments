@@ -117,7 +117,8 @@ watchOnce(height, () => {
 })
 
 const replaceNewLinesExceptInCodeBlocks = (text: any) => {
-  text = text.replaceAll(/#(\S+)/g, '[#$1](/tags/$1)');
+  // 不让 ## / ### 这种 heading 被误吃成 tag
+  text = text.replaceAll(/#([^\s#]+)/g, '[#$1](/tags/$1)');
 
   text = text.replace(/```([^\n]*)\n([\s\S]*?)```/g, function (match: string, lang: string, code: string) {
     if(lang) {
@@ -140,27 +141,38 @@ const replaceNewLinesExceptInCodeBlocks = (text: any) => {
   text = text.replace(/^\[ \] (.*?)(?=\n|$)/gmi, '<input type="checkbox" disabled> $1'); // 未完成
   text = text.replace(/^\[[xX]\] (.*?)(?=\n|$)/gmi, '<input type="checkbox" checked disabled> $1'); // 完成
 
-  // 将text根据换行符分割成数组
+  // 将text根据换行符分割成数组；标题 / 引用 / 分割线在 list / span fallback 之前判
   const spices = text.split('\n');
   for (let j = 0; j < spices.length; j++) {
-    if (spices[j].startsWith('![')) {
-      const img = spices[j].match(/!\[(.*?)\]\((.*?)\)/);
+    const line = spices[j];
+    if (line.startsWith('### ')) {
+      spices[j] = '<h3>' + line.slice(4) + '</h3>';
+    } else if (line.startsWith('## ')) {
+      spices[j] = '<h2>' + line.slice(3) + '</h2>';
+    } else if (line.startsWith('# ')) {
+      spices[j] = '<h1>' + line.slice(2) + '</h1>';
+    } else if (/^-{2,}\s*$/.test(line)) {
+      spices[j] = '<hr>';
+    } else if (line.startsWith('> ')) {
+      spices[j] = '<blockquote>' + line.slice(2) + '</blockquote>';
+    } else if (line.startsWith('![')) {
+      const img = line.match(/!\[(.*?)\]\((.*?)\)/);
       if (img) {
         spices[j] = `<img src="${img[2]}" alt="${img[1]}" class="cursor-pointer" @click="navigateTo('${img[2]}')"/>`;
       }
-    } else if (/^\d+\./.test(spices[j])) {
-      spices[j] = '<p>' + spices[j] + '</p>';
-    } else if (/^-/.test(spices[j])) {
-      spices[j] = '<li>' + spices[j].replace(/^-/, '') + '</li>';
+    } else if (/^\d+\./.test(line)) {
+      spices[j] = '<p>' + line + '</p>';
+    } else if (/^-/.test(line)) {
+      spices[j] = '<li>' + line.replace(/^-/, '') + '</li>';
     } else {
-      spices[j] = '<span>' + spices[j] + '</span><br />';
+      spices[j] = '<span>' + line + '</span><br />';
     }
   }
   text = spices.join('');
   if (text.endsWith('<br />')) {
     text = text.substring(0, text.length - 6);
   }
-  return DOMPurify.sanitize(text, { ALLOWED_TAGS: ['a', 'p', 'span', 'ul', 'ol', 'li', 'img', 'strong', 'em', 'del', 'blockquote', 'code', 'pre', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'br', 'iframe', 'input'] });
+  return DOMPurify.sanitize(text, { ALLOWED_TAGS: ['a', 'p', 'span', 'ul', 'ol', 'li', 'img', 'strong', 'em', 'del', 'blockquote', 'code', 'pre', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'br', 'hr', 'iframe', 'input'] });
 };
 
 </script>
@@ -202,6 +214,52 @@ const replaceNewLinesExceptInCodeBlocks = (text: any) => {
   list-style-type: roman;
   padding-left: 20px;
   margin-left: 0;
+}
+
+/* 标题 1/2/3 */
+.words-container h1 {
+  font-size: 1.18em;
+  font-weight: 600;
+  margin: 0.4em 0;
+  line-height: 1.3;
+}
+.words-container h2 {
+  font-size: 1.1em;
+  font-weight: 500;
+  margin: 0.4em 0;
+  line-height: 1.3;
+}
+.words-container h3 {
+  font-size: 1em;
+  font-weight: 500;
+  margin: 0.35em 0;
+  line-height: 1.3;
+}
+
+/* 引用块 */
+.words-container blockquote {
+  background-color: #f1f1f1;
+  border-left: 3px solid #c0c0c0;
+  padding: 6px 10px;
+  margin: 4px 0;
+  border-radius: 0 4px 4px 0;
+  color: #555;
+}
+.dark .words-container blockquote {
+  background-color: #2a2a2a;
+  border-left-color: #555;
+  color: #c0c0c0;
+}
+
+/* 水平分割线 */
+.words-container hr {
+  border: none;
+  border-top: 1px solid #d1d1d1;
+  margin: 10px 0;
+  height: 0;
+}
+.dark .words-container hr {
+  border-top-color: #3a3a3a;
 }
 
 /* 样式定义 */

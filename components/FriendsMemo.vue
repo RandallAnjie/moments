@@ -704,7 +704,8 @@ const replaceNewLinesExceptInCodeBlocks = (text: string) => {
   });
 
   // Markdown链接转换为a标签
-  text = text.replaceAll(/#(\S+)/g, '[#$1](/tags/$1)');
+  // 注意 [^\s#]+ —— 不让 ## / ### 这种 heading 被误吃成 tag（之前 \S+ 会把 ##title 匹配掉）
+  text = text.replaceAll(/#([^\s#]+)/g, '[#$1](/tags/$1)');
   text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
 
   // 格式化粗体、斜体、删除线、代码
@@ -717,10 +718,22 @@ const replaceNewLinesExceptInCodeBlocks = (text: string) => {
   text = text.replace(/^\[ \] (.*?)(?=\n|$)/gmi, '<input type="checkbox" disabled> $1');
   text = text.replace(/^\[[xX]\] (.*?)(?=\n|$)/gmi, '<input type="checkbox" checked disabled> $1');
 
-  // 切割文本并处理列表等
+  // 切割文本并处理列表 / 标题 / 引用 / 分割线等
   const lines = text.split('\n');
   text = lines.map(line => {
-    if (line.startsWith('![')) {
+    // 标题：长前缀先判（### 在 ## 之前，## 在 # 之前），匹配后跟空格才算
+    if (line.startsWith('### ')) {
+      return '<h3>' + line.slice(4) + '</h3>';
+    } else if (line.startsWith('## ')) {
+      return '<h2>' + line.slice(3) + '</h2>';
+    } else if (line.startsWith('# ')) {
+      return '<h1>' + line.slice(2) + '</h1>';
+    } else if (/^-{2,}\s*$/.test(line)) {
+      // 整行只有 2+ 个 - 视为水平分割线（必须在 ^- 列表判定之前）
+      return '<hr>';
+    } else if (line.startsWith('> ')) {
+      return '<blockquote>' + line.slice(2) + '</blockquote>';
+    } else if (line.startsWith('![')) {
       const img = line.match(/!\[(.*?)\]\((.*?)\)/);
       return `<img src="${img[2]}" alt="${img[1]}" class="cursor-pointer" @click="navigateTo('${img[2]}')"/>`;
     } else if (/^\d+\./.test(line)) {
@@ -742,7 +755,7 @@ const replaceNewLinesExceptInCodeBlocks = (text: string) => {
     text = text.slice(0, -1)
   }
 
-  const returns =  DOMPurify.sanitize(text, { ALLOWED_TAGS: ['a', 'p', 'span', 'ul', 'ol', 'li', 'img', 'strong', 'em', 'del', 'blockquote', 'code', 'pre', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'br', 'iframe', 'input'] });
+  const returns =  DOMPurify.sanitize(text, { ALLOWED_TAGS: ['a', 'p', 'span', 'ul', 'ol', 'li', 'img', 'strong', 'em', 'del', 'blockquote', 'code', 'pre', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'br', 'hr', 'iframe', 'input'] });
   return returns;
 };
 
@@ -820,6 +833,52 @@ const translateText = async () => {
   list-style-type: roman;
   padding-left: 20px;
   margin-left: 0;
+}
+
+/* 标题 1/2/3：大一号加粗 / 大一号 / 同等 */
+.words-container h1 {
+  font-size: 1.18em;
+  font-weight: 600;
+  margin: 0.4em 0;
+  line-height: 1.3;
+}
+.words-container h2 {
+  font-size: 1.1em;
+  font-weight: 500;
+  margin: 0.4em 0;
+  line-height: 1.3;
+}
+.words-container h3 {
+  font-size: 1em;
+  font-weight: 500;
+  margin: 0.35em 0;
+  line-height: 1.3;
+}
+
+/* 引用块：浅灰底 + 左侧灰色竖条 */
+.words-container blockquote {
+  background-color: #f1f1f1;
+  border-left: 3px solid #c0c0c0;
+  padding: 6px 10px;
+  margin: 4px 0;
+  border-radius: 0 4px 4px 0;
+  color: #555;
+}
+.dark .words-container blockquote {
+  background-color: #2a2a2a;
+  border-left-color: #555;
+  color: #c0c0c0;
+}
+
+/* 水平分割线 */
+.words-container hr {
+  border: none;
+  border-top: 1px solid #d1d1d1;
+  margin: 10px 0;
+  height: 0;
+}
+.dark .words-container hr {
+  border-top-color: #3a3a3a;
 }
 
 
