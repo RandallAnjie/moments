@@ -10,12 +10,13 @@
       <div
         :id="'content-' + props.memo.id"
         class="memo-content text-sm friend-md words-container"
-        :class="{ 'memo-clamp': !showAll }"
+        :class="{ 'memo-clamp': !showAll && !clampAnimating }"
+        :style="clampAnimStyle"
         ref="el"
         v-html="replaceNewLinesExceptInCodeBlocks(props.memo.content)"
       ></div>
-      <div class="text-[#576b95] cursor-pointer" v-if="isOverflowing && !showAll" @click="showAll = true">全文</div>
-      <div class="text-[#576b95] cursor-pointer" v-if="isOverflowing && showAll" @click="showAll = false">收起</div>
+      <div class="text-[#576b95] cursor-pointer" v-if="isOverflowing && !showAll" @click="toggleShowAll">全文</div>
+      <div class="text-[#576b95] cursor-pointer" v-if="isOverflowing && showAll" @click="toggleShowAll">收起</div>
       <div class="flex flex-row gap-2 my-2 bg-[#f7f7f7] dark:bg-[#212121] items-center p-2 border rounded"
         v-if="props.memo.externalFavicon && props.memo.externalTitle">
         <img class="w-8 h-8" :src="props.memo.externalFavicon" alt="">
@@ -328,6 +329,9 @@ refreshAtpeople()
 const emit = defineEmits(['memo-update'])
 
 const showAll = ref(false)
+// 全文 / 收起 高度动画过渡状态
+const clampAnimating = ref(false)
+const clampAnimStyle = ref<Record<string, string>>({})
 const showToolbar = ref(false)
 const showCommentInput = ref(false)
 const toolbarRef = ref<HTMLElement | null>(null)
@@ -346,6 +350,82 @@ const checkOverflow = () => {
   if (!el.value) return
   if (showAll.value) return // 展开状态下不重判，避免「收起」消失
   isOverflowing.value = el.value.scrollHeight > el.value.clientHeight + 1
+}
+
+// "全文 / 收起" 高度动画。
+// 展开：先把全文 layout（去掉 -webkit-line-clamp），同时把容器锁在当前可见高度；
+//       然后把 maxHeight 改成 scrollHeight 触发 transition；结束后解掉 inline style。
+// 收起：先把 maxHeight 钉在 scrollHeight，下一帧改成 4 行高度触发 transition；
+//       结束后再加回 .memo-clamp 类，获得 line-clamp 的省略号。
+// 缓动 cubic-bezier(0.4, 0, 0.2, 1) 是 slow-fast-slow。
+const ANIM_MS = 380
+async function toggleShowAll() {
+  const elt = el.value
+  if (!elt || clampAnimating.value) return
+
+  const cs = getComputedStyle(elt)
+  const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.4 || 20
+  const clampedH = Math.round(lh * 4)
+  const transitionStr = `max-height ${ANIM_MS}ms cubic-bezier(0.4, 0, 0.2, 1)`
+
+  clampAnimating.value = true
+
+  if (!showAll.value) {
+    // ===== 展开 =====
+    const startH = elt.clientHeight // 当前 clamped 后可视高度
+    clampAnimStyle.value = {
+      maxHeight: startH + 'px',
+      overflow: 'hidden',
+      transition: transitionStr,
+    }
+    // 让 :class 触发卸下 memo-clamp（showAll=true && clampAnimating=true → 没 clamp）
+    showAll.value = true
+    await nextTick()
+    void elt.offsetHeight // 强制 reflow，让上面 max-height 起点固化
+    const endH = elt.scrollHeight
+    clampAnimStyle.value = { ...clampAnimStyle.value, maxHeight: endH + 'px' }
+    finishAfterTransition()
+  } else {
+    // ===== 收起 =====
+    const startH = elt.scrollHeight // 当前 natural 全高
+    clampAnimStyle.value = {
+      maxHeight: startH + 'px',
+      overflow: 'hidden',
+      transition: transitionStr,
+    }
+    await nextTick()
+    void elt.offsetHeight
+    clampAnimStyle.value = { ...clampAnimStyle.value, maxHeight: clampedH + 'px' }
+    finishAfterTransition(() => {
+      // 高度动画结束后再把 line-clamp 类装回去，拿到末行省略号
+      showAll.value = false
+    })
+  }
+}
+
+function finishAfterTransition(after?: () => void) {
+  const elt = el.value
+  if (!elt) {
+    clampAnimating.value = false
+    clampAnimStyle.value = {}
+    after?.()
+    return
+  }
+  let done = false
+  const finish = () => {
+    if (done) return
+    done = true
+    elt.removeEventListener('transitionend', onEnd)
+    clampAnimStyle.value = {}
+    clampAnimating.value = false
+    after?.()
+  }
+  const onEnd = (e: TransitionEvent) => {
+    if (e.propertyName === 'max-height') finish()
+  }
+  elt.addEventListener('transitionend', onEnd)
+  // 兜底：万一 transitionend 没触发（动画被打断 / 浏览器 bug），定时 forceFinish
+  setTimeout(finish, ANIM_MS + 80)
 }
 
 onClickOutside(toolbarRef, (e) => {
