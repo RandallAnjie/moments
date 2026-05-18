@@ -117,6 +117,11 @@ watchOnce(height, () => {
 })
 
 const replaceNewLinesExceptInCodeBlocks = (text: any) => {
+  // 长文章模式：有 markdown 标题就把连续空行折叠成单行
+  if (/^#{1,3} /m.test(text)) {
+    text = text.replace(/\n{2,}/g, '\n');
+  }
+
   // 不让 ## / ### 这种 heading 被误吃成 tag
   text = text.replaceAll(/#([^\s#]+)/g, '[#$1](/tags/$1)');
 

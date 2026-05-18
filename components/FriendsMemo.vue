@@ -703,6 +703,12 @@ const replaceNewLinesExceptInCodeBlocks = (text: string) => {
     return `<<code-block-${codeBlocks.length - 1}>>`;
   });
 
+  // 长文章模式：有 markdown 标题就把连续空行折叠成单行（短动态保留原本的多空行视觉间距）
+  const hasHeading = /^#{1,3} /m.test(text);
+  if (hasHeading) {
+    text = text.replace(/\n{2,}/g, '\n');
+  }
+
   // Markdown链接转换为a标签
   // 注意 [^\s#]+ —— 不让 ## / ### 这种 heading 被误吃成 tag（之前 \S+ 会把 ##title 匹配掉）
   text = text.replaceAll(/#([^\s#]+)/g, '[#$1](/tags/$1)');
