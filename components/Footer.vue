@@ -98,6 +98,12 @@
         提供加速服务
       </div>
     </div>
+    <!-- RandallFlare 走 SSR 直接渲染,避开闪烁 -->
+    <div v-if="isRandallFlare" class="flex flex-row gap-1 items-center">
+      本站由
+      <a href="https://bigrandall.io" target="_blank" rel="noopener" class="font-semibold tracking-wide">RandallFlare</a>
+      提供计算分发服务
+    </div>
     <div class="flex flex-col gap-1 items-center">
       <a class="my-2 text-gray-500" v-if="beian" href="https://beian.miit.gov.cn/" target="_blank">{{ beian }}</a>
     </div>
@@ -113,7 +119,20 @@ const colorMode = useColorMode()
 
 const beian = response.data.beianNo
 
+// 边缘节点 (RandallFlare 的 edge-agent) 转发请求到 Pages worker 时
+// 会 inject x-randallflare-edge: pages,转发到 Workers 时是
+// x-randallflare-edge: workers。SSR 阶段从 useRequestHeaders 读这条
+// 做品牌切换 —— 跑在 CF Pages / 其它平台上读不到,fallback 走原有
+// Cloudflare logo onMounted 显示逻辑。truthy 判定就是"是不是 RF",
+// 具体产品类型(pages vs workers)在 randallFlareProduct 里能拿到。
+const headers = useRequestHeaders(['x-randallflare-edge'])
+const randallFlareProduct = headers['x-randallflare-edge'] ?? ''
+const isRandallFlare = !!randallFlareProduct
+
 onMounted(() => {
+  // 仅 CF 部署才需要 onMounted 显示老的 Cloudflare logo 区块。
+  // RandallFlare SSR 已经渲染好品牌字串了,跳过避免双品牌叠加。
+  if (isRandallFlare) return;
   // 站点固定部署在 Cloudflare Pages —— 直接写死，省掉一次 /api/check-cdn 请求
   document.getElementById('cdn-div')?.style.setProperty('display', 'flex');
   document.getElementById('Cloudflare')?.style.setProperty('display', 'flex');
