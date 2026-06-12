@@ -104,16 +104,6 @@
       <a href="https://bigrandall.io" target="_blank" rel="noopener" class="font-semibold tracking-wide">RandallFlare</a>
       提供计算分发服务
     </div>
-    <!-- DEBUG: SSR 看到的 request headers 关键值,排查完删 -->
-    <div class="text-[0.6rem] text-gray-400 mt-1 font-mono whitespace-pre">
-[debug] rf={{ debugSnapshot.rf || '(empty)' }}
-[debug] cf-ray={{ debugSnapshot.cfRay || '(none)' }}
-[debug] x-edge-worker={{ debugSnapshot.server || '(none)' }}
-[debug] via={{ debugSnapshot.via || '(none)' }}
-[debug] host={{ debugSnapshot.host }}
-[debug] headerCount={{ debugSnapshot.keyCount }}
-[debug] x-keys={{ debugSnapshot.xKeys || '(none)' }}
-    </div>
     <div class="flex flex-col gap-1 items-center">
       <a class="my-2 text-gray-500" v-if="beian" href="https://beian.miit.gov.cn/" target="_blank">{{ beian }}</a>
     </div>
@@ -129,23 +119,17 @@ const colorMode = useColorMode()
 
 const beian = response.data.beianNo
 
-// 同上 —— 把 SSR 见到的整个 header 集合也丢进 hydration payload,
-// 排查时直接渲染出来看哪条到了哪条没到。
-const debugSnapshot = useState('randallflare-debug-headers', () => {
-  const all = useRequestHeaders()
-  const keys = Object.keys(all)
-  return {
-    rf: all['x-randallflare-edge'] ?? '',
-    cfRay: all['cf-ray'] ?? '',
-    via: all['via'] ?? '',
-    host: all['host'] ?? '',
-    server: all['x-edge-worker'] ?? '',
-    keyCount: keys.length,
-    // 找所有 x-* 自定义头看 agent 注了啥别的没
-    xKeys: keys.filter((k) => k.toLowerCase().startsWith('x-')).join(','),
-  }
+// 边缘节点 (RandallFlare 的 edge-agent) 转发请求到 Pages worker 时
+// 会 inject x-randallflare-edge: pages,转发到 Workers 时是
+// x-randallflare-edge: workers。SSR 阶段读 request header,值通过
+// useState 塞进 Nuxt 的 hydration payload,客户端 hydrate 时直接复用
+// payload 不再调 useRequestHeaders(浏览器侧返空对象),避免品牌闪烁。
+// truthy 判定就是"是不是 RF",具体产品类型(pages vs workers)在
+// randallFlareProduct 里。
+const randallFlareProduct = useState('randallflare-edge-product', () => {
+  const h = useRequestHeaders(['x-randallflare-edge'])
+  return h['x-randallflare-edge'] ?? ''
 })
-const randallFlareProduct = computed(() => debugSnapshot.value.rf)
 const isRandallFlare = computed(() => !!randallFlareProduct.value)
 
 onMounted(() => {
