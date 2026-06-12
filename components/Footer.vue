@@ -104,6 +104,10 @@
       <a href="https://bigrandall.io" target="_blank" rel="noopener" class="font-semibold tracking-wide">RandallFlare</a>
       提供计算分发服务
     </div>
+    <!-- DEBUG: 临时显示 SSR 看到的 header 值,排查完删 -->
+    <div class="text-[0.6rem] text-gray-400 mt-1">
+      [debug] x-randallflare-edge = "{{ randallFlareProduct }}"
+    </div>
     <div class="flex flex-col gap-1 items-center">
       <a class="my-2 text-gray-500" v-if="beian" href="https://beian.miit.gov.cn/" target="_blank">{{ beian }}</a>
     </div>
