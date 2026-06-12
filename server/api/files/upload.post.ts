@@ -47,10 +47,15 @@ export default defineEventHandler(async (event) => {
       httpMetadata: { contentType: file.type || 'application/octet-stream' },
     })
   } catch (e) {
-    console.log('R2 put error:', e)
+    // 之前只 console.log 错误,接口返「上传文件失败」无任何细节,
+    // 排查只能去 worker 日志翻。把真实错误 message 透出来 ——
+    // R2Bucket.put 的 shim 抛 'R2 put 4xx/5xx',直接看 status
+    // 就能定位是 quota / bucket-not-found / proxy-down 哪一种。
+    const reason = e instanceof Error ? e.message : String(e)
+    console.log('R2 put error:', reason)
     return {
       success: false,
-      message: '上传文件失败',
+      message: `上传文件失败: ${reason}`,
       filename: '',
     }
   }
