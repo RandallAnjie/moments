@@ -65,6 +65,15 @@ export default defineEventHandler(async (event) => {
             .select()
             .from(systemConfig)
             .where(inArray(systemConfig.type, [1]))
+        // 公开请求绝不能拿到敏感 secret —— metingToken 是 HMAC 签名密钥,
+        // 一旦泄到前端 anyone 就能签出任意 url/pic/lrc 请求。在这里 strip。
+        // 别的 type=1 secret 同理(将来加新 secret 时往这个 set 里加)。
+        const PUBLIC_SECRET_KEYS = new Set(['metingToken'])
+        const publicConfig = Object.fromEntries(
+            configData
+                .filter((item) => !PUBLIC_SECRET_KEYS.has(item.key))
+                .map((item) => [item.key, item.value]),
+        )
         data = {
             notification,
             enableS3: configRow.enableS3,
@@ -72,7 +81,7 @@ export default defineEventHandler(async (event) => {
             recaptchaSiteKey: configRow.recaptchaSiteKey,
             enableTencentMap: configRow.enableTencentMap,
             tencentMapKey: configRow.tencentMapKey,
-            ...Object.fromEntries(configData.map((item) => [item.key, item.value])),
+            ...publicConfig,
         }
     }
 

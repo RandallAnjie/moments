@@ -79,6 +79,23 @@
 
     <div class="flex flex-col gap-2 qus-box">
       <div class="flex">
+        <Label for="metingToken" class="font-bold">音乐API 鉴权 Token</Label>
+        <div class="tooltip">
+          <span class="tooltip-text">
+            当音乐API要求 HMAC-SHA1 鉴权时（例如自部署的 Meting-API），把
+            它的 METING_TOKEN 填在这里。前台请求会由服务端代理 /api/music
+            转发并签名，token 不会暴露到浏览器。留空 = 不签名（公开 API）。
+          </span>
+          <div class="circle">
+            <span class="exclamation">!</span>
+          </div>
+        </div>
+      </div>
+      <Input type="password" id="metingToken" placeholder="留空表示音乐API不需要鉴权" autocomplete="new-password" v-model="state.metingToken" />
+    </div>
+
+    <div class="flex flex-col gap-2 qus-box">
+      <div class="flex">
         <Label for="aboutHtml" class="font-bold">关于页自定义</Label>
       </div>
       <Textarea id="aboutHtml" v-model="state.aboutHtml" rows="3"></Textarea>
@@ -420,6 +437,7 @@ const state = reactive({
   emailNewReplyCommentNotification: '',
   emailNewMentionCommentNotification: '',
   metingApi: '',
+  metingToken: '',
   customWeather: false,
   aboutHtml: ''
 })
@@ -470,6 +488,7 @@ state.emailNewCommentNotification = data?.emailNewCommentNotification || ''
 state.emailNewReplyCommentNotification = data?.emailNewReplyCommentNotification || ''
 state.emailNewMentionCommentNotification = data?.emailNewMentionCommentNotification || ''
 state.metingApi = data?.metingApi || ''
+state.metingToken = data?.metingToken || ''
 state.customWeather = data.customWeather ? data.customWeather == "1" : false
 state.aboutHtml = data?.aboutHtml || ''
 
