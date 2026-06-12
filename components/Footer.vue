@@ -121,18 +121,22 @@ const beian = response.data.beianNo
 
 // 边缘节点 (RandallFlare 的 edge-agent) 转发请求到 Pages worker 时
 // 会 inject x-randallflare-edge: pages,转发到 Workers 时是
-// x-randallflare-edge: workers。SSR 阶段从 useRequestHeaders 读这条
-// 做品牌切换 —— 跑在 CF Pages / 其它平台上读不到,fallback 走原有
-// Cloudflare logo onMounted 显示逻辑。truthy 判定就是"是不是 RF",
-// 具体产品类型(pages vs workers)在 randallFlareProduct 里能拿到。
-const headers = useRequestHeaders(['x-randallflare-edge'])
-const randallFlareProduct = headers['x-randallflare-edge'] ?? ''
-const isRandallFlare = !!randallFlareProduct
+// x-randallflare-edge: workers。SSR 阶段读 request header,值通过
+// useState 塞进 Nuxt 的 hydration payload,客户端 hydrate 时不会
+// 因为 useRequestHeaders() 在浏览器侧返空对象而错判成"不是 RF" ——
+// 之前的 bug 就是直接在 setup 里算 isRandallFlare,SSR true →
+// client false → v-if 摘掉 RandallFlare div,onMounted 又显示 CF。
+const randallFlareProduct = useState('randallflare-edge-product', () => {
+  const h = useRequestHeaders(['x-randallflare-edge'])
+  return h['x-randallflare-edge'] ?? ''
+})
+const isRandallFlare = computed(() => !!randallFlareProduct.value)
 
 onMounted(() => {
   // 仅 CF 部署才需要 onMounted 显示老的 Cloudflare logo 区块。
   // RandallFlare SSR 已经渲染好品牌字串了,跳过避免双品牌叠加。
-  if (isRandallFlare) return;
+  // 注意 isRandallFlare 现在是 computed,.value 才是 boolean。
+  if (isRandallFlare.value) return;
   // 站点固定部署在 Cloudflare Pages —— 直接写死，省掉一次 /api/check-cdn 请求
   document.getElementById('cdn-div')?.style.setProperty('display', 'flex');
   document.getElementById('Cloudflare')?.style.setProperty('display', 'flex');
