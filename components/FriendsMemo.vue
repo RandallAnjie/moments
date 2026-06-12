@@ -1,7 +1,7 @@
 <template>
 
   <div class="memo flex flex-row gap-2 sm:gap-4 text-sm border-x-0 pt-2 p-2 sm:p-4" :class="{'bg-slate-100 dark:bg-neutral-900':props.memo.pinned && props.memo.userId == 1}" style="max-width: 100vw">
-    <img :src="props.memo.user.avatarUrl" class="avatar w-9 h-9 rounded" @click="gotouser" />
+    <img :src="getImgUrl(props.memo.user.avatarUrl)" class="avatar w-9 h-9 rounded" @click="gotouser" />
     <div class="flex flex-col gap-.5 flex-1 min-w-0">
       <div class="flex flex-row justify-between items-center">
         <div class="username text-[#576b95] cursor-default mb-1 dark:text-white" @click="gotouser">{{ props.memo.user.nickname }}</div>

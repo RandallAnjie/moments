@@ -60,7 +60,7 @@
         <Label for="avatarUrl-input" class="font-medium" style="align-content: center;">或者输入在线地址:</Label>
         <Input type="text" id="avatarUrl-input" placeholder="或者填入在线地址" autocomplete="off" v-model="state.avatarUrl" style="width: 35%" />
       </div>
-      <img :src="state.avatarUrl" alt="avatar" class="w-[70px] h-[70px] rounded-xl" v-if="state.avatarUrl" />
+      <img :src="getImgUrl(state.avatarUrl)" alt="avatar" class="w-[70px] h-[70px] rounded-xl" v-if="state.avatarUrl" />
     </div>
     <div class="flex flex-col gap-2">
       <Label for="coverUrl" class="font-bold">顶部图片</Label>
@@ -69,7 +69,7 @@
         <Label for="coverUrl-input" class="font-medium" style="align-content: center;">或者输入在线地址:</Label>
         <Input type="text" id="coverUrl-input" placeholder="或者填入在线地址" autocomplete="off" v-model="state.coverUrl" style="width: 35%"/>
       </div>
-      <img class="w-full h-[250px]" v-if="state.avatarUrl" :src="state.coverUrl" alt="" />
+      <img class="w-full h-[250px]" v-if="state.coverUrl" :src="getImgUrl(state.coverUrl)" alt="" />
     </div>
 
     <div class="flex flex-col gap-2">
@@ -90,6 +90,7 @@
 
 <script setup lang="ts">
 import { settingsUpdateEvent } from '~/lib/event'
+import { getImgUrl } from '~/lib/utils'
 const token = useCookie('token')
 const userId = useCookie('userId')
 import { useStorage } from "@vueuse/core";

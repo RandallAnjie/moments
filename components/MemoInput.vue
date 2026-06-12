@@ -227,7 +227,7 @@
                                 class="absolute left-0 w-[25px] inline-flex items-center justify-center"
                             >
                             </ComboboxItemIndicator>
-                            <img :src="option.avatarUrl" class="w-[20px] h-[20px] rounded-full" />
+                            <img :src="getImgUrl(option.avatarUrl)" class="w-[20px] h-[20px] rounded-full" />
                             <span>
                             {{ option.nickname }}
                           </span>
@@ -300,7 +300,7 @@
                                 class="absolute left-0 w-[25px] inline-flex items-center justify-center"
                             >
                             </ComboboxItemIndicator>
-                            <img :src="option.avatarUrl" class="w-[20px] h-[20px] rounded-full" />
+                            <img :src="getImgUrl(option.avatarUrl)" class="w-[20px] h-[20px] rounded-full" />
                             <span>
                             {{ option.nickname }}
                           </span>
