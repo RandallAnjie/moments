@@ -41,194 +41,248 @@ const staticWord: Record<string, string> = {
 }
 
 export default defineEventHandler(async (event) => {
-  const body = (await readBody(event)) as SaveMemoReq
+  // Wrap the whole handler so unexpected errors come back as a real
+  // JSON body with a reason, not an opaque "Server Error" 500. The
+  // previous behaviour swallowed every D1 / schema / fetch error
+  // into nitro's catch-all, which left both the user and the operator
+  // staring at the same useless 500 page.
+  //
+  // Stage tagging: we set `stage` before each meaningful operation so
+  // the catch knows which step blew up. Cheap to maintain, makes the
+  // worker log line readable at a glance.
+  let stage = 'init'
+  try {
+    const body = (await readBody(event)) as SaveMemoReq
 
-  if (!body.content) {
-    return { success: false, message: '内容不能为空' }
-  }
+    if (!body.content) {
+      return { success: false, message: '内容不能为空' }
+    }
 
-  const db = useDb(event)
-  const configRows = await db
-    .select()
-    .from(configTable)
-    .where(eq(configTable.id, 1))
-    .limit(1)
-  const siteConfig = configRows[0] ?? null
-  const siteUrl = siteConfig?.siteUrl ?? ''
+    stage = 'db-init'
+    const db = useDb(event)
 
-  const userId = event.context.userId as number | undefined
-  if (!userId) {
-    throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-  }
+    stage = 'load-site-config'
+    const configRows = await db
+      .select()
+      .from(configTable)
+      .where(eq(configTable.id, 1))
+      .limit(1)
+    const siteConfig = configRows[0] ?? null
+    const siteUrl = siteConfig?.siteUrl ?? ''
 
-  const lookupId = body.id ?? -1
-  const memoRows = await db
-    .select()
-    .from(memos)
-    .where(eq(memos.id, lookupId))
-    .limit(1)
-  const existingMemo = memoRows[0] ?? null
+    const userId = event.context.userId as number | undefined
+    if (!userId) {
+      throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+    }
 
-  if (existingMemo && existingMemo.userId !== userId) {
-    throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-  }
+    stage = 'lookup-existing-memo'
+    // Body id can arrive as a string from form-encoded sources or
+    // legacy clients; coerce so the D1 query gets a number.
+    const lookupId =
+      body.id == null || body.id === ''
+        ? -1
+        : typeof body.id === 'number'
+          ? body.id
+          : Number(body.id) || -1
+    const memoRows = await db
+      .select()
+      .from(memos)
+      .where(eq(memos.id, lookupId))
+      .limit(1)
+    const existingMemo = memoRows[0] ?? null
 
-  if (
-    siteConfig?.enableAliyunDective &&
-    siteConfig?.aliyunAccessKeyId !== '' &&
-    siteConfig?.aliyunAccessKeySecret !== '' &&
-    userId !== 1
-  ) {
-    const contentArray = body.content.match(/[\s\S]{1,600}/g) ?? []
-    for (let i = 0; i < contentArray.length; i++) {
-      const aliJudgeResponse1: any = await aliTextJudge(
-        contentArray[i],
-        'comment_detection',
-        siteConfig?.aliyunAccessKeyId || '',
-        siteConfig?.aliyunAccessKeySecret || '',
-      )
-      if (
-        aliJudgeResponse1?.Data &&
-        aliJudgeResponse1.Data.labels &&
-        aliJudgeResponse1.Data.labels !== ''
-      ) {
-        const labelsList = String(aliJudgeResponse1.Data.labels).split(',')
-        return {
-          success: false,
-          message:
-            '内容不符合规范：' +
-            labelsList.map((label) => staticWord[label] ?? label).join(', '),
+    if (existingMemo && existingMemo.userId !== userId) {
+      throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+    }
+
+    if (
+      siteConfig?.enableAliyunDective &&
+      siteConfig?.aliyunAccessKeyId !== '' &&
+      siteConfig?.aliyunAccessKeySecret !== '' &&
+      userId !== 1
+    ) {
+      stage = 'aliyun-text-judge'
+      const contentArray = body.content.match(/[\s\S]{1,600}/g) ?? []
+      for (let i = 0; i < contentArray.length; i++) {
+        const aliJudgeResponse1: any = await aliTextJudge(
+          contentArray[i],
+          'comment_detection',
+          siteConfig?.aliyunAccessKeyId || '',
+          siteConfig?.aliyunAccessKeySecret || '',
+        )
+        if (
+          aliJudgeResponse1?.Data &&
+          aliJudgeResponse1.Data.labels &&
+          aliJudgeResponse1.Data.labels !== ''
+        ) {
+          const labelsList = String(aliJudgeResponse1.Data.labels).split(',')
+          return {
+            success: false,
+            message:
+              '内容不符合规范：' +
+              labelsList.map((label) => staticWord[label] ?? label).join(', '),
+          }
         }
       }
     }
-  }
 
-  let atpeople = body.atpeople
-  if (atpeople) {
-    atpeople = atpeople.filter((item) => item !== userId)
-  }
-  let avpeople = body.avpeople
-  let avpeopleString: string[] = []
-  if (avpeople && avpeople.length > 0) {
-    if (!avpeople.includes(userId)) {
-      avpeople.push(userId)
-    }
+    // Defensive: only treat atpeople/avpeople as arrays if they really
+    // are. Clients have shipped them as null, undefined, '', and even
+    // bare numbers in the wild — `.filter` on a non-array would 500.
+    let atpeople = Array.isArray(body.atpeople) ? body.atpeople : undefined
     if (atpeople) {
-      atpeople.forEach((item) => {
-        if (!avpeople!.includes(item)) {
-          avpeople!.push(item)
-        }
-      })
+      atpeople = atpeople.filter((item) => item !== userId)
     }
-    avpeopleString = avpeople.map((item) => '#' + item + '$')
-  }
+    let avpeople = Array.isArray(body.avpeople) ? body.avpeople : undefined
+    let avpeopleString: string[] = []
+    if (avpeople && avpeople.length > 0) {
+      if (!avpeople.includes(userId)) {
+        avpeople.push(userId)
+      }
+      if (atpeople) {
+        atpeople.forEach((item) => {
+          if (!avpeople!.includes(item)) {
+            avpeople!.push(item)
+          }
+        })
+      }
+      avpeopleString = avpeople.map((item) => '#' + item + '$')
+    }
 
-  const now = new Date().toISOString()
-  const updated = {
-    imgs: body.imgUrls?.join(',') ?? null,
-    atpeople: atpeople?.join(',') ?? null,
-    availableForProple: avpeopleString.join(',') || null,
-    location: body.location ?? null,
-    externalUrl: body.externalUrl ?? null,
-    externalTitle: body.externalTitle ?? null,
-    externalFavicon: body.externalFavicon ?? '/favicon.png',
-    content: body.content,
-    music163Url: body.music163Url ?? null,
-    updatedAt: now,
-  }
+    const now = new Date().toISOString()
+    const updated = {
+      imgs: body.imgUrls?.join(',') ?? null,
+      atpeople: atpeople?.join(',') ?? null,
+      availableForProple: avpeopleString.join(',') || null,
+      location: body.location ?? null,
+      externalUrl: body.externalUrl ?? null,
+      externalTitle: body.externalTitle ?? null,
+      externalFavicon: body.externalFavicon ?? '/favicon.png',
+      content: body.content,
+      music163Url: body.music163Url ?? null,
+      updatedAt: now,
+    }
 
-  let resultId: number
-  if (existingMemo) {
-    const updatedRows = await db
-      .update(memos)
-      .set(updated)
-      .where(eq(memos.id, existingMemo.id))
-      .returning({ id: memos.id })
-    resultId = updatedRows[0]?.id ?? existingMemo.id
-  } else {
-    const insertedRows = await db
-      .insert(memos)
-      .values({
-        userId,
-        createdAt: now,
-        ...updated,
-      })
-      .returning({ id: memos.id })
-    resultId = insertedRows[0]!.id
-  }
+    stage = existingMemo ? 'update-memo' : 'insert-memo'
+    let resultId: number
+    if (existingMemo) {
+      const updatedRows = await db
+        .update(memos)
+        .set(updated)
+        .where(eq(memos.id, existingMemo.id))
+        .returning({ id: memos.id })
+      resultId = updatedRows[0]?.id ?? existingMemo.id
+    } else {
+      const insertedRows = await db
+        .insert(memos)
+        .values({
+          userId,
+          createdAt: now,
+          ...updated,
+        })
+        .returning({ id: memos.id })
+      resultId = insertedRows[0]!.id
+    }
 
-  // 给被 @ 的人发 web push（去重 + 跳过自己）
-  const pushTargets = new Set<number>()
-  if (atpeople && atpeople.length > 0) {
-    const senderRows = await db
-      .select({ nickname: users.nickname, eMail: users.eMail })
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1)
-    const sender = senderRows[0] ?? null
-    const senderNickname = sender?.nickname ?? ''
-    for (const item of atpeople) {
-      if (item && item !== userId) pushTargets.add(item)
-      const targetRows = await db
-        .select({ eMail: users.eMail })
-        .from(users)
-        .where(eq(users.id, item))
-        .limit(1)
-      const userat = targetRows[0] ?? null
-      if (
-        userat &&
-        userat.eMail &&
-        userat.eMail !== '' &&
-        userat.eMail !== sender?.eMail
-      ) {
-        let tmpmsg = `有一条新提及您的动态！\n                用户名为:  ${senderNickname} 的用户在动态中提及了您，点击查看: ${siteUrl}/detail/${resultId}`
-        const templateRows = await db
-          .select()
-          .from(systemConfig)
-          .where(eq(systemConfig.key, 'emailNewMentionCommentNotification'))
+    // Notifications are non-essential to the save itself; if anything
+    // in the email-or-push side path blows up we shouldn't fail the
+    // memo create/update that the user actually requested.
+    try {
+      stage = 'notifications'
+      const pushTargets = new Set<number>()
+      if (atpeople && atpeople.length > 0) {
+        const senderRows = await db
+          .select({ nickname: users.nickname, eMail: users.eMail })
+          .from(users)
+          .where(eq(users.id, userId))
           .limit(1)
-        const template = templateRows[0] ?? null
-        if (template && template.value && template.value !== '') {
-          tmpmsg = template.value
-        }
-        tmpmsg = tmpmsg.replaceAll('{Sitename}', siteConfig?.title ?? '')
-        tmpmsg = tmpmsg.replaceAll('{SiteUrl}', siteUrl)
-        tmpmsg = tmpmsg.replaceAll('{MemoUrl}', `${siteUrl}/detail/${resultId}`)
-        tmpmsg = tmpmsg.replaceAll('{Nickname}', senderNickname)
-        tmpmsg = tmpmsg.replaceAll('{Content}', body.content)
-        if (siteConfig?.enableEmail) {
-          await sendEmail(event, {
-            email: userat.eMail,
-            subject: '新提及',
-            message: tmpmsg,
-          })
+        const sender = senderRows[0] ?? null
+        const senderNickname = sender?.nickname ?? ''
+        for (const item of atpeople) {
+          if (item && item !== userId) pushTargets.add(item)
+          const targetRows = await db
+            .select({ eMail: users.eMail })
+            .from(users)
+            .where(eq(users.id, item))
+            .limit(1)
+          const userat = targetRows[0] ?? null
+          if (
+            userat &&
+            userat.eMail &&
+            userat.eMail !== '' &&
+            userat.eMail !== sender?.eMail
+          ) {
+            let tmpmsg = `有一条新提及您的动态！\n                用户名为:  ${senderNickname} 的用户在动态中提及了您，点击查看: ${siteUrl}/detail/${resultId}`
+            const templateRows = await db
+              .select()
+              .from(systemConfig)
+              .where(eq(systemConfig.key, 'emailNewMentionCommentNotification'))
+              .limit(1)
+            const template = templateRows[0] ?? null
+            if (template && template.value && template.value !== '') {
+              tmpmsg = template.value
+            }
+            tmpmsg = tmpmsg.replaceAll('{Sitename}', siteConfig?.title ?? '')
+            tmpmsg = tmpmsg.replaceAll('{SiteUrl}', siteUrl)
+            tmpmsg = tmpmsg.replaceAll(
+              '{MemoUrl}',
+              `${siteUrl}/detail/${resultId}`,
+            )
+            tmpmsg = tmpmsg.replaceAll('{Nickname}', senderNickname)
+            tmpmsg = tmpmsg.replaceAll('{Content}', body.content)
+            if (siteConfig?.enableEmail) {
+              await sendEmail(event, {
+                email: userat.eMail,
+                subject: '新提及',
+                message: tmpmsg,
+              })
+            }
+          }
         }
       }
+
+      if (pushTargets.size > 0) {
+        const senderRowsForPush = await db
+          .select({ nickname: users.nickname })
+          .from(users)
+          .where(eq(users.id, userId))
+          .limit(1)
+        const senderNick = senderRowsForPush[0]?.nickname ?? '某人'
+        await Promise.allSettled(
+          Array.from(pushTargets).map((uid) =>
+            pushToUser(event, uid, {
+              title: `${senderNick} 提到了你`,
+              body: (body.content || '').slice(0, 80),
+              url: `/detail/${resultId}`,
+              tag: `at-memo-${resultId}`,
+            }).catch(() => null),
+          ),
+        )
+      }
+    } catch (notifyErr) {
+      console.warn(
+        '[memo/save] notifications failed (memo itself was saved):',
+        notifyErr instanceof Error ? notifyErr.message : notifyErr,
+      )
     }
-  }
 
-  // 发 web push 给被 @ 的人
-  if (pushTargets.size > 0) {
-    const senderRowsForPush = await db
-      .select({ nickname: users.nickname })
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1)
-    const senderNick = senderRowsForPush[0]?.nickname ?? '某人'
-    await Promise.allSettled(
-      Array.from(pushTargets).map((uid) =>
-        pushToUser(event, uid, {
-          title: `${senderNick} 提到了你`,
-          body: (body.content || '').slice(0, 80),
-          url: `/detail/${resultId}`,
-          tag: `at-memo-${resultId}`,
-        }).catch(() => null),
-      ),
-    )
-  }
-
-  return {
-    success: true,
-    id: resultId,
+    return {
+      success: true,
+      id: resultId,
+    }
+  } catch (err) {
+    // Re-throw createError-style structured throws untouched so the
+    // 401 path still surfaces correctly. Anything else gets a 500
+    // with the real cause so the next repro is debuggable.
+    const e = err as { statusCode?: number; statusMessage?: string; message?: string }
+    if (e?.statusCode && e.statusCode >= 400 && e.statusCode < 500) {
+      throw err
+    }
+    const reason = e?.message ?? String(err)
+    console.error(`[memo/save] FAIL at stage=${stage}: ${reason}`)
+    return {
+      success: false,
+      message: `保存失败 (${stage}): ${reason}`,
+    }
   }
 })
