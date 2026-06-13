@@ -104,6 +104,13 @@
       <a href="https://bigrandall.io" target="_blank" rel="noopener" class="font-semibold tracking-wide">RandallFlare</a>
       提供计算分发服务
     </div>
+    <!-- Debug: 暴露 SSR 看到的 header 状态,排查为啥 isRandallFlare 不亮.
+         上线后可以删除整段 details. 灰色细字 + <details> 折叠,
+         默认收起来不影响视觉. -->
+    <details class="my-2 text-[10px] text-gray-400 max-w-full">
+      <summary class="cursor-pointer">debug: footer brand resolution</summary>
+      <pre class="whitespace-pre-wrap break-all bg-gray-50 dark:bg-slate-700 p-2 rounded mt-1 leading-snug">{{ debugInfo }}</pre>
+    </details>
     <div class="flex flex-col gap-1 items-center">
       <a class="my-2 text-gray-500" v-if="beian" href="https://beian.miit.gov.cn/" target="_blank">{{ beian }}</a>
     </div>
@@ -126,11 +133,54 @@ const beian = response.data.beianNo
 // payload 不再调 useRequestHeaders(浏览器侧返空对象),避免品牌闪烁。
 // truthy 判定就是"是不是 RF",具体产品类型(pages vs workers)在
 // randallFlareProduct 里。
+// Capture EVERY interesting header SSR is seeing so we can prove
+// whether the edge agent is actually injecting x-randallflare-edge
+// before deciding the SSR brand is broken on the moments side.
+// Pulled into useState so it makes it across the hydration payload
+// to the browser and shows up in the rendered <details> debug box.
+const debugSnapshot = useState('randallflare-debug-headers', () => {
+  // Ask for both the specific header AND a broader sweep — wildcard
+  // isn't supported by useRequestHeaders, so we enumerate the
+  // candidates we care about explicitly.
+  const wanted = [
+    'x-randallflare-edge',
+    'x-randallflare-node',
+    'x-randallflare-product',
+    'x-forwarded-host',
+    'x-forwarded-for',
+    'x-forwarded-proto',
+    'cf-connecting-ip',
+    'cf-ray',
+    'host',
+    'user-agent',
+  ]
+  const h = useRequestHeaders(wanted)
+  return {
+    where: import.meta.server ? 'ssr' : 'csr',
+    raw: h,
+    rfEdge: h['x-randallflare-edge'] ?? null,
+  }
+})
+
 const randallFlareProduct = useState('randallflare-edge-product', () => {
   const h = useRequestHeaders(['x-randallflare-edge'])
   return h['x-randallflare-edge'] ?? ''
 })
 const isRandallFlare = computed(() => !!randallFlareProduct.value)
+
+const debugInfo = computed(() => {
+  return JSON.stringify(
+    {
+      capturedIn: debugSnapshot.value.where,
+      randallFlareProduct: randallFlareProduct.value,
+      isRandallFlare: isRandallFlare.value,
+      headerXRandallflareEdge: debugSnapshot.value.rfEdge,
+      otherHeaders: debugSnapshot.value.raw,
+    },
+    null,
+    2,
+  )
+})
 
 onMounted(() => {
   // 仅 CF 部署才需要 onMounted 显示老的 Cloudflare logo 区块。
