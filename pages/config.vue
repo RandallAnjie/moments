@@ -19,7 +19,7 @@
         <Label for="favicon-input" class="font-medium" style="align-content: center;">或者输入在线地址:</Label>
         <Input type="text" id="favicon-input" placeholder="或者填入在线地址" autocomplete="off" v-model="state.favicon" style="width: 35%" />
       </div>
-      <img class="max-w-[50px] max-h-[50px]" v-if="state.favicon" :src="state.favicon" alt="" />
+      <img class="max-w-[50px] max-h-[50px]" v-if="state.favicon" :src="getImgUrl(state.favicon)" alt="" />
     </div>
 
     <div class="flex flex-col gap-2 qus-box">
@@ -367,6 +367,7 @@
 
 <script setup lang="ts">
 import { settingsUpdateEvent } from '~/lib/event'
+import { getImgUrl } from '~/lib/utils'
 const token = useCookie('token')
 import { useStorage } from "@vueuse/core";
 import type { User } from '~/lib/types';

@@ -154,6 +154,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from 'radix-vue'
+import { getImgUrl } from '~/lib/utils'
 
 const toggleState = ref(false)
 const checkboxOne = ref(false)
@@ -186,7 +187,7 @@ onMounted(async () => {
       {
         rel: 'shortcut icon',
         type: 'image/png',
-        href: userinfo.value?.favicon || '/favicon.png',
+        href: getImgUrl(userinfo.value?.favicon || '/favicon.png'),
       },
       {
         rel: 'apple-touch-icon',
