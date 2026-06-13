@@ -168,6 +168,60 @@ const randallFlareProduct = useState('randallflare-edge-product', () => {
 })
 const isRandallFlare = computed(() => !!randallFlareProduct.value)
 
+// Client-side probe: HEAD the current page and dump *response*
+// headers. If x-rf-served-by is present, the edge agent IS in the
+// path — it's just dropping the request-side x-randallflare-edge
+// header somewhere between Director and workerd. If absent, the
+// agent isn't serving this request at all (operator running an
+// older binary that pre-dates the brand-header commit, or the
+// request is reaching this app directly).
+const probeResp = ref<{
+  ranAt: string
+  status: number | null
+  rfServedBy: string | null
+  rfEdge: string | null
+  allHeaders: Record<string, string>
+  error: string | null
+} | null>(null)
+
+async function runResponseHeaderProbe() {
+  try {
+    const r = await fetch(window.location.pathname, {
+      method: 'HEAD',
+      cache: 'no-store',
+      credentials: 'omit',
+    })
+    const all: Record<string, string> = {}
+    r.headers.forEach((v, k) => {
+      all[k] = v
+    })
+    probeResp.value = {
+      ranAt: new Date().toISOString(),
+      status: r.status,
+      rfServedBy: r.headers.get('x-rf-served-by'),
+      rfEdge: r.headers.get('x-randallflare-edge'),
+      allHeaders: all,
+      error: null,
+    }
+  } catch (e) {
+    probeResp.value = {
+      ranAt: new Date().toISOString(),
+      status: null,
+      rfServedBy: null,
+      rfEdge: null,
+      allHeaders: {},
+      error: (e as Error).message,
+    }
+  }
+}
+
+if (import.meta.client) {
+  // Run probe once after mount.
+  onMounted(() => {
+    runResponseHeaderProbe()
+  })
+}
+
 const debugInfo = computed(() => {
   return JSON.stringify(
     {
@@ -175,7 +229,8 @@ const debugInfo = computed(() => {
       randallFlareProduct: randallFlareProduct.value,
       isRandallFlare: isRandallFlare.value,
       headerXRandallflareEdge: debugSnapshot.value.rfEdge,
-      otherHeaders: debugSnapshot.value.raw,
+      otherSsrHeaders: debugSnapshot.value.raw,
+      clientHeadProbe: probeResp.value,
     },
     null,
     2,
