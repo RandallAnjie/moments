@@ -1,23 +1,21 @@
-// Server-side proxy for the music API. Signs each request with the
-// configured METING_TOKEN (system_config.metingToken) before forwarding
-// to the upstream API base — Meting-API style url/pic/lrc routes
-// require an HMAC-SHA1(token, server+type+id) signature, and that
-// secret must never leave the server.
+// Server-side proxy for the music API. We share the configured
+// METING_TOKEN with the upstream Meting-API worker, so the simplest
+// thing to do is forward the master token directly via `?token=`
+// — the upstream's master-key bypass then signs search/song/
+// playlist responses for the embedded player and waves through
+// url/pic/lrc without making us compute a per-id HMAC.
 //
-// meting-js calls `<this URL>?server=:server&type=:type&id=:id&r=:r`;
-// we attach &auth=<sig> when the token is set, otherwise pass through
-// unchanged (works against legacy unauthenticated APIs too).
+// (The HMAC dance is still supported upstream for clients that
+// don't know the master token, e.g. the meting-js fetcher when
+// it follows a signed search row. We're not one of those clients
+// because we're server-side and already trust ourselves.)
 //
-// 302/301 from upstream — re-emitted as a Location header so meting-js
+// meting-js calls `<this URL>?server=:server&type=:type&id=:id&r=:r`.
+// 302 from upstream — re-emitted as a Location header so meting-js
 // gets the same URL it would've gotten talking to upstream directly.
-import { createHmac } from 'node:crypto'
-import { eq, inArray } from 'drizzle-orm'
+import { inArray } from 'drizzle-orm'
 import { useDb } from '~/lib/db/d1'
 import { systemConfig } from '~/lib/db/schema'
-
-function sign (token: string, server: string, type: string, id: string): string {
-  return createHmac('sha1', token).update(`${server}${type}${id}`).digest('hex')
-}
 
 function normaliseBase (raw: string): string {
   let v = raw.trim()
@@ -46,9 +44,13 @@ export default defineEventHandler(async (event) => {
 
   const params = new URLSearchParams({ server, type, id, r })
   if (token) {
-    params.set('auth', sign(token, server, type, id))
+    // Master-key bypass — upstream treats ?token=METING_TOKEN as
+    // "this caller is trusted, sign search rows + waive HMAC".
+    params.set('token', token)
   } else if (q.auth) {
-    // Caller pre-signed (unusual) — let it through.
+    // No configured token but the caller already pre-signed.
+    // Forward the HMAC verbatim — works against legacy upstreams
+    // that don't speak the master-key channel.
     params.set('auth', String(q.auth))
   }
 
