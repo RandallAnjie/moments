@@ -5,7 +5,7 @@
 // Prisma upsert semantics are preserved: if a Memo row with body.id exists
 // (and belongs to the authenticated user), update it; otherwise insert a
 // new row with the current user as owner.
-import { eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import { aliTextJudge } from '~/utils/aliTextJudge'
 import { sendEmail } from '~/utils/sendEmail'
 import { useDb } from '~/lib/db/d1'
@@ -181,7 +181,30 @@ export default defineEventHandler(async (event) => {
           ...updated,
         })
         .returning({ id: memos.id })
-      resultId = insertedRows[0]!.id
+      let insertedId = insertedRows[0]?.id ?? null
+      if (insertedId == null) {
+        // D1 sometimes answers returning() with [] even though the row
+        // landed on disk (observed when the worker hits its CPU budget
+        // mid-statement). Re-resolve by the unique (userId, createdAt)
+        // tuple we just wrote so the client still gets a usable id —
+        // otherwise the next line throws and the visible side effect
+        // is "saved on the server, error on the client" which is the
+        // exact symptom we keep seeing in production.
+        stage = 'insert-memo-reselect'
+        const fallback = await db
+          .select({ id: memos.id })
+          .from(memos)
+          .where(and(eq(memos.userId, userId), eq(memos.createdAt, now)))
+          .orderBy(desc(memos.id))
+          .limit(1)
+        insertedId = fallback[0]?.id ?? null
+        if (insertedId == null) {
+          throw new Error(
+            'D1 insert returned no id and the (userId, createdAt) re-lookup was empty',
+          )
+        }
+      }
+      resultId = insertedId
     }
 
     // Notifications are non-essential to the save itself; if anything
