@@ -14,6 +14,8 @@ const needLoginUrl = [
   '/api/push/subscribe',
   '/api/push/unsubscribe',
   '/api/push/test',
+  '/api/user/twitter/connect',
+  '/api/user/twitter/disconnect',
 ]
 
 const needAdminUrl = [

@@ -29,6 +29,11 @@ export const users = sqliteTable('User', {
   beianNo: text('beianNo'),
   eMail: text('eMail'),
   code: text('code'),
+  // X (Twitter) 绑定：每个用户自己的 OAuth 1.0a access token（不过期）。
+  twitterAccessToken: text('twitterAccessToken'),
+  twitterAccessSecret: text('twitterAccessSecret'),
+  twitterScreenName: text('twitterScreenName'),
+  twitterUserId: text('twitterUserId'),
 })
 
 export const memos = sqliteTable(
@@ -53,6 +58,8 @@ export const memos = sqliteTable(
     pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
     atpeople: text('atpeople'),
     availableForProple: text('availableForProple'),
+    // 同步到 X 后生成的推文 id（null = 未同步）。前端据此打 X 徽标 + 回链。
+    tweetId: text('tweetId'),
   },
   (t) => ({
     userIdIdx: index('Memo_userId_idx').on(t.userId),

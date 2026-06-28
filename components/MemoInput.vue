@@ -319,6 +319,19 @@
           </Popover>
         </div>
       </div>
+      <div class="flex flex-row justify-between items-center gap-2 memo-info-list" v-if="twitterConnected">
+        <label class="text-sm flex flex-row gap-1 flex-1 items-center cursor-pointer" style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+          <div style="display: flex; align-items: center;">
+            <span class="flex items-center justify-center" style="width:32px;height:32px;">
+              <svg viewBox="0 0 1200 1227" width="18" height="18" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <path fill="currentColor" d="M714.163 519.284 1160.89 0h-105.86L667.137 450.887 357.328 0H0l468.492 681.821L0 1226.37h105.866l409.625-476.152 327.181 476.152H1200L714.137 519.284h.026ZM569.165 687.828l-47.468-67.894-377.686-540.24h162.604l304.797 435.991 47.468 67.894 396.2 566.721H892.476L569.165 687.854v-.026Z"/>
+              </svg>
+            </span>
+            <div class="text-sm">同步到 X</div>
+          </div>
+          <input type="checkbox" v-model="syncTwitter" class="w-4 h-4 cursor-pointer" />
+        </label>
+      </div>
       <div class="flex flex-row justify-between items-center gap-2 memo-info-list" style="">
       </div>
     </div>
@@ -483,6 +496,10 @@ const externalFetchError = ref(false)
 const externalTitleEditing = ref(false)
 const music163Open = ref(false)
 
+// X (Twitter) 同步：仅当本用户已绑定 X 且站点开启时显示开关。
+const syncTwitter = ref(false)
+const twitterConnected = ref(false)
+
 let shouConfigButton = false
 let userId = ref(0)
 userId = useCookie('userId') || 0
@@ -580,7 +597,8 @@ const submitMemo = async () => {
     externalFavicon: externalFavicon.value,
     externalTitle: externalTitle.value,
     externalUrl: externalUrl.value,
-    music163Url: music163Url.value
+    music163Url: music163Url.value,
+    syncTwitter: syncTwitter.value
   }
   toast.promise($fetch('/api/memo/save', {
         method: 'POST',
@@ -611,6 +629,7 @@ const submitMemo = async () => {
             showEmoji.value = false
             music163Open.value = false
             music163Url.value = ''
+            syncTwitter.value = false
             emit('memo-added')
             return '提交成功';
           } else {
@@ -773,6 +792,8 @@ memoUpdateEvent.on((event: Memo) => {
     music163Url.value = ''
   }
   music163Open.value = false
+  // 编辑已有 memo 不重复发推（同步只在新建时触发）。
+  syncTwitter.value = false
   musicBoxKey++
 })
 const showLocationInput = ref(false)
@@ -781,6 +802,13 @@ onMounted(async () => {
   const settings = await useSiteSettings().fetchSettings()
   if (settings?.success) {
     showLocationInput.value = (settings.data.customLocation == "1")
+  }
+  // X 同步开关：本用户已绑定且站点开启时才显示
+  try {
+    const st = await $fetch('/api/user/twitter/status')
+    if (st?.success) twitterConnected.value = st.data.siteEnabled && st.data.connected
+  } catch {
+    // 忽略
   }
 })
 

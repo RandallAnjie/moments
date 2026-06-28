@@ -19,6 +19,7 @@ export type Memo = {
   pinned:boolean,
   atpeople?:string;
   avpeople?:string;
+  tweetId?: string | null;
   _count: {
     comments: number;
   };

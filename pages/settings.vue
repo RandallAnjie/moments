@@ -82,6 +82,28 @@
       <Textarea id="js" v-model="state.js" rows="3"></Textarea>
     </div>
 
+    <ClientOnly>
+      <div class="flex flex-col gap-2" v-if="twitterLoaded">
+        <Label class="font-bold">同步到 X</Label>
+        <template v-if="!twitter.siteEnabled">
+          <div class="text-xs text-gray-500">站点未启用 X 同步，请联系管理员在后台开启。</div>
+        </template>
+        <template v-else-if="twitter.connected">
+          <div class="flex flex-row items-center gap-2 flex-wrap">
+            <span class="text-sm">已绑定<template v-if="twitter.screenName">：@{{ twitter.screenName }}</template></span>
+            <Button variant="secondary" type="button" @click="disconnectTwitter">解绑</Button>
+          </div>
+          <div class="text-xs text-gray-500">发布动态时勾选「同步到 X」即可把动态发到你的 X。</div>
+        </template>
+        <template v-else>
+          <div class="flex flex-row items-center gap-2">
+            <Button type="button" @click="connectTwitter">连接 X 账号</Button>
+          </div>
+          <div class="text-xs text-gray-500">授权后，发布动态时可选择同步到你的 X。</div>
+        </template>
+      </div>
+    </ClientOnly>
+
     <div class="flex flex-col gap-2 ">
       <Button @click="saveSettings">保存</Button>
     </div>
@@ -194,6 +216,63 @@ const uploadImgs = async (event: Event, id: string) => {
     }
   })
 }
+
+// --- X (Twitter) 绑定 ---------------------------------------------------
+// 状态走客户端拉取（status 端点要带登录 cookie），用 ClientOnly 包住避免
+// SSR 时拿不到 cookie 渲染出错误的「未绑定」态再闪一下。
+const twitterLoaded = ref(false)
+const twitter = reactive({ siteEnabled: false, connected: false, screenName: '' })
+
+const loadTwitterStatus = async () => {
+  try {
+    const st = await $fetch('/api/user/twitter/status')
+    if (st?.success) {
+      twitter.siteEnabled = st.data.siteEnabled
+      twitter.connected = st.data.connected
+      twitter.screenName = st.data.screenName
+    }
+  } catch {
+    // 忽略：保持默认「未启用」态
+  } finally {
+    twitterLoaded.value = true
+  }
+}
+
+const connectTwitter = () => {
+  // 整页跳转去发起 OAuth（connect 端点会 302 到 X 授权页）
+  window.location.href = '/api/user/twitter/connect'
+}
+
+const disconnectTwitter = async () => {
+  try {
+    const { success } = await $fetch('/api/user/twitter/disconnect', { method: 'POST' })
+    if (success) {
+      twitter.connected = false
+      twitter.screenName = ''
+      toast.success('已解绑 X')
+    }
+  } catch (e: any) {
+    toast.warning('解绑失败: ' + (e?.message || '未知错误'))
+  }
+}
+
+onMounted(() => {
+  loadTwitterStatus()
+  // 处理 OAuth 回调跳回来的 ?twitter=... 状态提示，然后把 query 清掉
+  const params = new URLSearchParams(window.location.search)
+  const status = params.get('twitter')
+  if (status) {
+    const map: Record<string, [boolean, string]> = {
+      connected: [true, '已成功连接 X 账号'],
+      denied: [false, '已取消 X 授权'],
+      expired: [false, 'X 授权超时，请重试'],
+      error: [false, 'X 连接失败，请重试'],
+    }
+    const m = map[status]
+    if (m) (m[0] ? toast.success : toast.warning)(m[1])
+    window.history.replaceState({}, '', '/settings')
+  }
+})
 
 const saveSettings = async () => {
   toast.promise($fetch('/api/user/settings/save', {

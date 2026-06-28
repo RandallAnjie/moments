@@ -7,6 +7,19 @@
       <div class="text-[#576b95] font-medium dark:text-white text-xs mt-2 mb-1 select-none" v-if="(!props.memo.pinned) && props.memo.displayDay">
         {{props.memo.location?.split(/\s+/g).join(' · ')}}
       </div>
+      <a
+        v-if="props.memo.tweetId"
+        :href="`https://x.com/i/status/${props.memo.tweetId}`"
+        target="_blank"
+        rel="noopener"
+        title="已同步到 X，点击查看"
+        class="inline-flex items-center mt-1 text-[#9DA4B0] hover:text-black dark:hover:text-white"
+        @click.stop
+      >
+        <svg viewBox="0 0 1200 1227" width="12" height="12" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path fill="currentColor" d="M714.163 519.284 1160.89 0h-105.86L667.137 450.887 357.328 0H0l468.492 681.821L0 1226.37h105.866l409.625-476.152 327.181 476.152H1200L714.137 519.284h.026ZM569.165 687.828l-47.468-67.894-377.686-540.24h162.604l304.797 435.991 47.468 67.894 396.2 566.721H892.476L569.165 687.854v-.026Z"/>
+        </svg>
+      </a>
       <div class="flex flex-row justify-between items-center" v-if="props.memo.pinned" style="width: 100%; height: 100%">
         <div style="width: 100%; height: 100%; display: flex; align-items: center;"><span style="font-size: 30px">置顶</span></div>
       </div>
