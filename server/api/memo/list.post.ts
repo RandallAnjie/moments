@@ -95,19 +95,6 @@ export default defineEventHandler(async (event) => {
     rawMemos = rows.slice(0, size)
   }
 
-  // [TEMP DEBUG] 排查「list 返回空」—— 打印 Memo 表真实总行数 + 本次过滤参数。
-  // 查清后删除（连同 debug-count.get.ts）。
-  try {
-    const totalRows = await db.select({ c: sql<number>`count(*)` }).from(memos)
-    const total = Number(totalRows[0]?.c ?? 0)
-    console.log(
-      '[memo/list][DEBUG]',
-      JSON.stringify({ totalMemoRows: total, ctxUserId, userIdFilter, page, matched: rawMemos.length, hasNext }),
-    )
-  } catch (e) {
-    console.log('[memo/list][DEBUG] count failed:', e instanceof Error ? e.message : e)
-  }
-
   // Hydrate users + comments in batch, then assemble the legacy response shape.
   const memoIds = rawMemos.map((m) => m.id)
   const userIds = Array.from(new Set(rawMemos.map((m) => m.userId)))
