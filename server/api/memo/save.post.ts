@@ -10,8 +10,6 @@ import { aliTextJudge } from '~/utils/aliTextJudge'
 import { sendEmail } from '~/utils/sendEmail'
 import { useDb } from '~/lib/db/d1'
 import { pushToUser } from '~/lib/push'
-import { getCfEnv } from '~/lib/cf-env'
-import { postTweet, uploadMedia } from '~/lib/twitter'
 import { config as configTable, memos, systemConfig, users } from '~/lib/db/schema'
 
 type SaveMemoReq = {
@@ -25,8 +23,6 @@ type SaveMemoReq = {
   externalTitle?: string
   externalFavicon?: string
   music163Url?: string
-  /** When true and the author has bound their X account, mirror this new memo to X. */
-  syncTwitter?: boolean
 }
 
 const staticWord: Record<string, string> = {
@@ -293,74 +289,9 @@ export default defineEventHandler(async (event) => {
       )
     }
 
-    // X (Twitter) 同步：和 notifications 一样是非核心副作用,失败绝不能
-    // 把已经写好的 memo 搞挂。只在「新建 memo」时触发(编辑不重复发推)。
-    let tweetId: string | null = null
-    if (body.syncTwitter && !existingMemo) {
-      try {
-        stage = 'twitter-sync'
-        const site = await getTwitterSiteCreds(db)
-        if (twitterSiteReady(site)) {
-          const [author] = await db
-            .select({
-              token: users.twitterAccessToken,
-              secret: users.twitterAccessSecret,
-            })
-            .from(users)
-            .where(eq(users.id, userId))
-            .limit(1)
-          if (author?.token && author?.secret) {
-            const creds = {
-              consumerKey: site.apiKey,
-              consumerSecret: site.apiSecret,
-              token: author.token,
-              tokenSecret: author.secret,
-            }
-            const link = siteUrl ? `${siteUrl.replace(/\/+$/, '')}/detail/${resultId}` : ''
-            const text = buildTweetText(body.content, link)
-
-            // 上传图片(最多 4 张,X 限制)。从 R2 取原始字节再 multipart 上传。
-            // Live Photo 存成 "still|video",只取 still 那半;视频暂不传。
-            const mediaIds: string[] = []
-            const uploads = getCfEnv(event).UPLOADS
-            const imgList = Array.isArray(body.imgUrls) ? body.imgUrls.slice(0, 4) : []
-            if (uploads && imgList.length > 0) {
-              for (const raw of imgList) {
-                try {
-                  const still = raw.includes('|') ? raw.split('|')[0] : raw
-                  const key = still.replace(/^\/upload\//, '')
-                  const obj = await uploads.get(key)
-                  if (!obj) continue
-                  const mime = obj.httpMetadata?.contentType || guessImageMime(key)
-                  if (!mime.startsWith('image/')) continue
-                  const buf = await obj.arrayBuffer()
-                  mediaIds.push(await uploadMedia(creds, buf, mime))
-                } catch (mediaErr) {
-                  console.warn(
-                    '[memo/save] tweet media upload skipped:',
-                    mediaErr instanceof Error ? mediaErr.message : mediaErr,
-                  )
-                }
-              }
-            }
-
-            const tweet = await postTweet(creds, text, mediaIds.length ? mediaIds : undefined)
-            tweetId = tweet.id
-            await db.update(memos).set({ tweetId }).where(eq(memos.id, resultId))
-          }
-        }
-      } catch (twErr) {
-        console.warn(
-          '[memo/save] twitter sync failed (memo itself was saved):',
-          twErr instanceof Error ? twErr.message : twErr,
-        )
-      }
-    }
-
     return {
       success: true,
       id: resultId,
-      tweetId,
     }
   } catch (err) {
     // Re-throw createError-style structured throws untouched so the

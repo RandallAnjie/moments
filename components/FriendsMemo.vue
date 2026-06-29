@@ -72,19 +72,6 @@
       <div class="text-[#576b95] font-medium dark:text-white text-xs mt-1 mb-1 select-none">{{props.memo.location?.split(/\s+/g).join(' · ')}}</div>
       <div class="toolbar relative flex flex-row justify-between select-none my-1">
         <div class="flex-1 text-gray text-xs text-[#9DA4B0] ">{{ timeFormateFunction(props.memo.createdAt) }}</div>
-        <a
-          v-if="props.memo.tweetId"
-          :href="`https://x.com/i/status/${props.memo.tweetId}`"
-          target="_blank"
-          rel="noopener"
-          title="已同步到 X，点击查看"
-          class="flex items-center mr-2 self-center text-[#9DA4B0] hover:text-black dark:hover:text-white"
-          @click.stop
-        >
-          <svg viewBox="0 0 1200 1227" width="12" height="12" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <path fill="currentColor" d="M714.163 519.284 1160.89 0h-105.86L667.137 450.887 357.328 0H0l468.492 681.821L0 1226.37h105.866l409.625-476.152 327.181 476.152H1200L714.137 519.284h.026ZM569.165 687.828l-47.468-67.894-377.686-540.24h162.604l304.797 435.991 47.468 67.894 396.2 566.721H892.476L569.165 687.854v-.026Z"/>
-          </svg>
-        </a>
         <div @click="toggleToolbar"
           ref="dotIconRef"
           class="toolbar-icon mb-2 px-2 py-1 bg-[#f7f7f7] dark:bg-slate-700 hover:bg-[#dedede] cursor-pointer rounded flex items-center justify-center">

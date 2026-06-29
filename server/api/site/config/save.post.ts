@@ -50,12 +50,6 @@ type SaveConfigsReq = {
     metingToken?: string,
     customWeather?: boolean,
     aboutHtml?: string,
-
-    // X (Twitter) 同步：站点级 App 凭据(consumer key/secret)。存 SystemConfig
-    // type=2,config/get 只回给 admin(userId=1),公开请求永远拿不到。
-    twitterEnable?: boolean,
-    twitterApiKey?: string,
-    twitterApiSecret?: string,
 }
 
 export default defineEventHandler(async (event) => {
@@ -158,18 +152,6 @@ export default defineEventHandler(async (event) => {
     }
     await updateSystemConfig(db, 'customWeather', data.customWeather ? '1' : '0', 1)
     await updateSystemConfig(db, 'aboutHtml', data.aboutHtml || '', 2)
-
-    // X (Twitter) 同步开关 + App 凭据。只在字段实际传入时写,避免 admin
-    // 保存别的设置时把这里清空(undefined-skip 语义,和上面其它字段一致)。
-    if (data.twitterEnable !== undefined) {
-        await updateSystemConfig(db, 'twitterEnable', data.twitterEnable ? '1' : '0', 2)
-    }
-    if (data.twitterApiKey !== undefined) {
-        await updateSystemConfig(db, 'twitterApiKey', data.twitterApiKey, 2)
-    }
-    if (data.twitterApiSecret !== undefined) {
-        await updateSystemConfig(db, 'twitterApiSecret', data.twitterApiSecret, 2)
-    }
 
     return {
         success: true,

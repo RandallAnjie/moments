@@ -359,31 +359,6 @@
       </div>
     </template>
 
-    <div class="flex flex-col gap-2 qus-box">
-      <Label for="twitterEnable" class="font-bold">启用 X 同步</Label>
-      <Switch id="twitterEnable" v-model:checked="state.twitterEnable" />
-    </div>
-
-    <template v-if="state.twitterEnable">
-      <div class="config-container">
-        <div class="text-xs text-gray-500 qus-box leading-relaxed">
-          在 <a href="https://developer.x.com/" target="_blank" class="underline">X 开发者后台</a> 建一个 App，
-          User authentication settings 选 <b>Read and write</b> + <b>Web App</b>，
-          Callback URI 填 <code class="break-all">{{ callbackHint }}</code>，
-          然后把 Keys and tokens 里的 API Key / Secret 填到下面。
-          配置好后，每个用户可在「个人设置」里绑定各自的 X 账号。
-        </div>
-        <div class="flex flex-col gap-2 qus-box">
-          <Label for="twitterApiKey" class="font-bold">X API Key（Consumer Key）</Label>
-          <Input type="text" id="twitterApiKey" placeholder="X App 的 API Key" autocomplete="off" v-model="state.twitterApiKey" />
-        </div>
-        <div class="flex flex-col gap-2 qus-box">
-          <Label for="twitterApiSecret" class="font-bold">X API Secret（Consumer Secret）</Label>
-          <Input type="password" id="twitterApiSecret" placeholder="X App 的 API Key Secret" autocomplete="new-password" v-model="state.twitterApiSecret" />
-        </div>
-      </div>
-    </template>
-
     <div class="flex flex-col gap-2 qus-box ">
       <Button @click="saveConfig">保存</Button>
     </div>
@@ -465,11 +440,7 @@ const state = reactive({
   metingApi: '',
   metingToken: '',
   customWeather: false,
-  aboutHtml: '',
-
-  twitterEnable: false,
-  twitterApiKey: '',
-  twitterApiSecret: '',
+  aboutHtml: ''
 })
 
 const { data: res } = await useFetch<{ data: typeof state }>('/api/site/config/get',{key:'settings'})
@@ -521,13 +492,6 @@ state.metingApi = data?.metingApi || ''
 state.metingToken = data?.metingToken || ''
 state.customWeather = data.customWeather ? data.customWeather == "1" : false
 state.aboutHtml = data?.aboutHtml || ''
-state.twitterEnable = data.twitterEnable ? data.twitterEnable == "1" : false
-state.twitterApiKey = data?.twitterApiKey || ''
-state.twitterApiSecret = data?.twitterApiSecret || ''
-
-const callbackHint = computed(
-  () => (state.siteUrl?.replace(/\/+$/, '') || 'https://你的域名') + '/api/user/twitter/callback',
-)
 
 
 const uploadImgs = async (event: Event, id: string) => {
