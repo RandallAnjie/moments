@@ -129,6 +129,8 @@ export default defineNuxtConfig({
       script: [
         { src: `/js/APlayer.min.js`, type: 'text/javascript', async: true, defer: true },
         { src: `/js/Meting.min.js`, type: 'text/javascript', async: true, defer: true },
+        // bigrandall.io 站点分析
+        { src: 'https://bigrandall.io/insights.js', defer: true, 'data-site': 'cmr8m3efu1ohx1jahicqya1mj' },
       ]
     }
   },
