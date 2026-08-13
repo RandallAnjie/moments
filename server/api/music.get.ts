@@ -43,6 +43,31 @@ function forwardResponseHeaders (event: Parameters<typeof setHeader>[0], res: Re
   }
 }
 
+async function resolveV2ResourceId (server: string, type: string, id: string): Promise<string> {
+  // Historical y.qq.com songDetail links may contain a numeric songid, while
+  // the V2 API addresses Tencent tracks by songmid. Resolve that legacy ID
+  // before asking V2; returned playlist tracks already contain mids.
+  if (server !== 'tencent' || type !== 'song' || !/^\d+$/.test(id)) return id
+
+  const lookup = new URL('https://c.y.qq.com/v8/fcg-bin/fcg_play_single_song.fcg')
+  lookup.searchParams.set('songid', id)
+  lookup.searchParams.set('format', 'json')
+  try {
+    const response = await fetch(lookup, {
+      headers: {
+        accept: 'application/json',
+        referer: 'https://y.qq.com/',
+      },
+    })
+    if (!response.ok) return id
+    const payload = await response.json() as { data?: Array<{ mid?: unknown }> }
+    const mid = payload.data?.[0]?.mid
+    return typeof mid === 'string' && mid ? mid : id
+  } catch {
+    return id
+  }
+}
+
 export default defineEventHandler(async (event) => {
   const db = useDb(event)
   const rows = await db
@@ -65,7 +90,8 @@ export default defineEventHandler(async (event) => {
   let isV2Media = false
   try {
     if (version === 'v2') {
-      const request = buildMetingV2Request(base, { server, type, id, r })
+      const resourceId = await resolveV2ResourceId(server, type, id)
+      const request = buildMetingV2Request(base, { server, type, id: resourceId, r })
       upstream = request.url
       isV2Media = request.media
     } else {
