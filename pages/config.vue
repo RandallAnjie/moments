@@ -79,12 +79,31 @@
 
     <div class="flex flex-col gap-2 qus-box">
       <div class="flex">
+        <Label for="metingVersion" class="font-bold">音乐 API 版本</Label>
+        <div class="tooltip">
+          <span class="tooltip-text">
+            V1 使用传统 /api?server=... 接口；V2 使用 /api/v2 REST 接口，
+            本站会自动转换成播放器兼容格式。已有接口请继续选择 V1。
+          </span>
+          <div class="circle">
+            <span class="exclamation">!</span>
+          </div>
+        </div>
+      </div>
+      <Select id="metingVersion" v-model="state.metingVersion">
+        <option value="v1">V1（传统接口）</option>
+        <option value="v2">V2（REST API）</option>
+      </Select>
+    </div>
+
+    <div class="flex flex-col gap-2 qus-box">
+      <div class="flex">
         <Label for="metingToken" class="font-bold">音乐API 鉴权 Token</Label>
         <div class="tooltip">
           <span class="tooltip-text">
-            当音乐API要求 HMAC-SHA1 鉴权时（例如自部署的 Meting-API），把
-            它的 METING_TOKEN 填在这里。前台请求会由服务端代理 /api/music
-            转发并签名，token 不会暴露到浏览器。留空 = 不签名（公开 API）。
+            填写上游的 METING_TOKEN。V1 会使用兼容 token 参数，V2 会使用
+            Bearer 鉴权；前台请求统一由服务端 /api/music 代理，Token 不会
+            暴露到浏览器。公开 API 可以留空。
           </span>
           <div class="circle">
             <span class="exclamation">!</span>
@@ -439,6 +458,7 @@ const state = reactive({
   emailNewMentionCommentNotification: '',
   metingApi: '',
   metingToken: '',
+  metingVersion: 'v1' as 'v1' | 'v2',
   customWeather: false,
   aboutHtml: ''
 })
@@ -490,6 +510,11 @@ state.emailNewReplyCommentNotification = data?.emailNewReplyCommentNotification 
 state.emailNewMentionCommentNotification = data?.emailNewMentionCommentNotification || ''
 state.metingApi = data?.metingApi || ''
 state.metingToken = data?.metingToken || ''
+state.metingVersion = data?.metingVersion === 'v2'
+  || (!data?.metingVersion && /^(https?:\/\/)?music\.rapi\.rest(?:\/|$)/i.test(state.metingApi))
+  || (!data?.metingVersion && /\/api\/v2\/?$/i.test(state.metingApi))
+  ? 'v2'
+  : 'v1'
 state.customWeather = data.customWeather ? data.customWeather == "1" : false
 state.aboutHtml = data?.aboutHtml || ''
 

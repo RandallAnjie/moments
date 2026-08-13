@@ -48,6 +48,7 @@ type SaveConfigsReq = {
     emailNewMentionCommentNotification?: string,
     metingApi?: string,
     metingToken?: string,
+    metingVersion?: 'v1' | 'v2',
     customWeather?: boolean,
     aboutHtml?: string,
 }
@@ -140,9 +141,11 @@ export default defineEventHandler(async (event) => {
     await updateSystemConfig(db, 'emailNewReplyCommentNotification', data.emailNewReplyCommentNotification || '', 2)
     await updateSystemConfig(db, 'emailNewMentionCommentNotification', data.emailNewMentionCommentNotification || '', 2)
     await updateSystemConfig(db, 'metingApi', data.metingApi || '', 1)
-    // metingToken: 当 metingApi 指向需要鉴权的 Meting-API (例如自部署
-    // 的 RandallFlare 版本) 时,用这个 token 作为 HMAC-SHA1 的 key 给
-    // 每次 url/pic/lrc/playlist 请求签名。空 = 不签 (旧的公开 API)。
+    if (data.metingVersion !== undefined) {
+        await updateSystemConfig(db, 'metingVersion', data.metingVersion === 'v2' ? 'v2' : 'v1', 1)
+    }
+    // metingToken: V1 通过兼容 token 参数传给上游，V2 使用 Bearer。
+    // 两种模式都只在服务端使用，绝不下发给浏览器。空 = 公开 API。
     // 不通过 metingToken=''(空) 走 updateSystemConfig 的 undefined 跳过
     // 路径,而是显式按下面规则走:
     //   - 传 undefined → 不动 DB,保持原值(其它字段同款语义)

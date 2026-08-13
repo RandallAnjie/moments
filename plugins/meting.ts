@@ -5,9 +5,9 @@
 //
 // We now point meting-js at our own server-side proxy
 // (`/api/music`), which:
-//   - reads metingApi + metingToken from system_config
-//   - signs the request with HMAC-SHA1(token, server+type+id)
-//   - forwards to the configured upstream
+//   - reads metingApi + metingToken + metingVersion from system_config
+//   - forwards V1 unchanged or translates the V2 REST resources
+//   - keeps all upstream authentication on the server
 //
 // The token stays on the server. From the browser's perspective,
 // the player just calls `/api/music?...` and gets a playlist /
@@ -23,13 +23,20 @@ export default defineNuxtPlugin(async () => {
 
   let upstream = ''
   let authConfigured = false
+  let version = 'v1'
   try {
     const r = await fetch('/api/getMetingApi')
-    const data = await r.json()
+    const data = await r.json() as {
+      success?: boolean
+      data?: { value?: unknown }
+      authConfigured?: boolean
+      version?: string
+    }
     if (data?.success && typeof data.data?.value === 'string' && data.data.value !== '') {
       upstream = data.data.value
     }
     authConfigured = !!data?.authConfigured
+    version = data?.version === 'v2' ? 'v2' : 'v1'
   } catch {
     // Fallthrough — defaults below cover the offline case.
   }
@@ -41,7 +48,7 @@ export default defineNuxtPlugin(async () => {
 
   // Backwards-compat global (only when no auth → external embeds
   // calling upstream directly still work)
-  if (!authConfigured && upstream) {
+  if (version === 'v1' && !authConfigured && upstream) {
     const base = upstream.endsWith('/') ? upstream : upstream + '/'
     ;(window as any).meting_api_upstream = base + 'api?server=:server&type=:type&id=:id&r=:r'
   }
